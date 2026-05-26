@@ -7,7 +7,9 @@
     
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
     <script src="https://unpkg.com/@babel/standalone@7.24.4/babel.min.js"></script>
+    
     <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     
@@ -18,30 +20,22 @@
         html, body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; background:#f8fafc; color:#0f172a; overflow:hidden; height:100vh; width:100vw; -webkit-font-smoothing:antialiased; }
         #root { height:100vh; width:100vw }
         #loading { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; background:#f8fafc; color:#475569; font-weight:500; }
-        ::-webkit-scrollbar { width:10px; height:10px; }
-        ::-webkit-scrollbar-track { background:transparent; }
-        ::-webkit-scrollbar-thumb { background:#cbd5e1; border-radius:5px; }
-        ::-webkit-scrollbar-thumb:hover { background:#94a3b8; }
-        .gm-style-iw-c { background:#ffffff !important; }
-        .gm-style .gm-style-iw-t::after { background:#ffffff !important; }
         .err { color:#dc2626; padding:20px; font-family:monospace; font-size:12px; white-space:pre-wrap; background:#fef2f2; border:1px solid #fecaca; border-radius:8px; margin:20px; }
-        input, select, textarea, button { font-family:inherit; }
-        input:focus, select:focus, textarea:focus { border-color:#10b981 !important; box-shadow:0 0 0 3px rgba(16,185,129,0.1) !important; }
     </style>
 </head>
 <body>
 
     <div id="root">
-        <div id="loading">Loading eirCRM...</div>
+        <div id="loading">Loading eirCRM Components...</div>
     </div>
 
     <script>
         window.addEventListener('error',(e)=>{
-            document.getElementById('root').innerHTML='<div class="err">⚠️ '+(e.error?.stack||e.message)+'</div>';
+            document.getElementById('root').innerHTML='<div class="err">⚠️ Script Error Details:<br>'+(e.error?.stack||e.message)+'</div>';
         });
     </script>
 
-    <script type="text/babel" data-presets="react" src="/src/App.jsx"></script>
+    <script type="text/babel" data-presets="react" data-type="module" src="/src/App.jsx"></script>
 
 </body>
 </html>
