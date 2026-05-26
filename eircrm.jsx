@@ -1,0 +1,3998 @@
+import React, { useState, useEffect } from 'react';
+
+// 1. Your Cloud Database Connection
+const supabaseUrl = 'https://zgavttwcdhrsarupbvrq.supabase.co';
+const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpnYXZ0d2NkaHJzYXJ1cGJ2cnFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk4MTg3MDYsImV4cCI6MjA5NTM5NDcwNn0.T-PtsnleJ2g3AQN1KtFv9OoEr59C9J1vk8naCQTEVbI';
+const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
+
+export default function App() {
+  const [customers, setCustomers] = useState([]);
+
+  // 2. Automatically load data when the app opens on your phone/laptop
+  useEffect(() => {
+    fetchContacts();
+  }, []);
+
+  const fetchContacts = async () => {
+    let { data, error } = await supabase.from('contacts').select('*');
+    if (data) setCustomers(data);
+  };
+
+  const saveContact = async (newContact) => {
+    let { error } = await supabase.from('contacts').insert([newContact]);
+    if (!error) fetchContacts(); // Refresh list immediately after saving
+  };
+
+  return (
+    <>
+      {/* 3. YOUR EXISTING CRM JSX CODE GOES HERE */}
+      {/* Keep all your buttons, inputs, and tables right here inside this return block */}
+    </>
+  );
+}
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import Papa from "papaparse";
+import * as XLSX from "xlsx";
+
+const STAGES=["Prospect","Contacted","Qualified","Proposal","Negotiation","Closed Won","Closed Lost"];
+const SC={Prospect:"#818cf8",Contacted:"#38bdf8",Qualified:"#fbbf24",Proposal:"#a78bfa",Negotiation:"#f472b6","Closed Won":"#34d399","Closed Lost":"#f87171"};
+const SB={Prospect:"#eef2ff",Contacted:"#e0f2fe",Qualified:"#fef3c7",Proposal:"#ede9fe",Negotiation:"#fce7f3","Closed Won":"#d1fae5","Closed Lost":"#fee2e2"};
+const INDS=["Technology","Retail","Healthcare","Finance","Manufacturing","Hospitality","Construction","Education","Professional Services","Logistics","Other"];
+const CNTS=["Dublin","Cork","Galway","Limerick","Waterford","Kilkenny","Wicklow","Kildare","Meath","Clare","Tipperary","Wexford","Other"];
+
+// Sub-areas for each county — when user picks a county, search runs across all these areas
+const COUNTY_AREAS={
+  "Dublin":[
+    "Dublin City Centre","Dublin 1","Dublin 2","Dublin 4","Dublin 6","Dublin 8","Dublin 9",
+    "Ballsbridge","Donnybrook","Ranelagh","Rathmines","Sandymount",
+    "Tallaght","Dundrum","Clondalkin","Blanchardstown","Swords","Lucan",
+    "Malahide","Skerries","Balbriggan","Howth","Portmarnock","Sutton",
+    "Dun Laoghaire","Blackrock","Stillorgan","Sandyford","Templeogue","Rathfarnham",
+    "Crumlin","Drumcondra","Finglas","Glasnevin","Clontarf","Raheny",
+    "Castleknock","Phibsborough","Inchicore","Ballyfermot",
+    "Ashbourne","Ratoath","Dunshaughlin","Maynooth","Leixlip","Celbridge",
+    "Bray","Greystones","Naas","Newbridge"
+  ],
+  "Cork":["Cork City","Cork City Centre","Douglas","Ballincollig","Carrigaline","Bishopstown","Midleton","Mallow","Cobh","Youghal","Bantry","Macroom","Bandon","Kinsale","Skibbereen","Clonakilty","Mitchelstown","Fermoy","Charleville","Blarney"],
+  "Galway":["Galway City","Galway City Centre","Salthill","Knocknacarra","Oranmore","Loughrea","Tuam","Ballinasloe","Athenry","Headford","Clifden","Gort","Spiddal","Moycullen"],
+  "Limerick":["Limerick City","Limerick City Centre","Castletroy","Dooradoyle","Raheen","Annacotty","Newcastle West","Adare","Kilmallock","Abbeyfeale","Rathkeale","Patrickswell"],
+  "Waterford":["Waterford City","Waterford City Centre","Tramore","Dungarvan","Lismore","Cappoquin","Portlaw","Kilmacthomas","Dunmore East","Ardmore","Tallow"],
+  "Kilkenny":["Kilkenny City","Kilkenny City Centre","Castlecomer","Thomastown","Callan","Graiguenamanagh","Bennettsbridge","Mooncoin","Mullinavat","Urlingford"],
+  "Wicklow":["Bray","Greystones","Wicklow Town","Arklow","Blessington","Newtownmountkennedy","Rathdrum","Aughrim","Ashford","Roundwood","Enniskerry","Kilcoole"],
+  "Kildare":["Naas","Newbridge","Maynooth","Leixlip","Celbridge","Kildare Town","Athy","Monasterevin","Kilcock","Clane","Sallins","Kilcullen","Rathangan"],
+  "Meath":["Navan","Trim","Kells","Ashbourne","Ratoath","Dunshaughlin","Dunboyne","Laytown","Bettystown","Slane","Stamullen","Enfield","Athboy","Oldcastle"],
+  "Clare":["Ennis","Shannon","Newmarket-on-Fergus","Sixmilebridge","Kilrush","Kilkee","Lahinch","Ennistymon","Tulla","Scariff","Killaloe","Corofin"],
+  "Tipperary":["Clonmel","Thurles","Nenagh","Tipperary Town","Carrick-on-Suir","Cashel","Cahir","Roscrea","Templemore","Fethard","Newport","Borrisokane"],
+  "Wexford":["Wexford Town","Enniscorthy","New Ross","Gorey","Bunclody","Ferns","Rosslare","Courtown","Kilmuckridge","Taghmon"],
+  "Other":[]
+};
+const ATYPES=["call","email","meeting","demo","proposal sent","follow-up","site visit"];
+const AICO={call:"📞",email:"📧",meeting:"🤝",demo:"💻","proposal sent":"📄","follow-up":"🔔","site visit":"📍"};
+
+// Dark map style for Google Maps JS API
+const DARK_MAP_STYLE=[
+  {elementType:"geometry",stylers:[{color:"#1a1f2e"}]},
+  {elementType:"labels.text.fill",stylers:[{color:"#64748b"}]},
+  {elementType:"labels.text.stroke",stylers:[{color:"#0a0c10"}]},
+  {featureType:"administrative.locality",elementType:"labels.text.fill",stylers:[{color:"#64748b"}]},
+  {featureType:"poi",stylers:[{visibility:"off"}]},
+  {featureType:"poi.park",elementType:"geometry",stylers:[{color:"#0f1f1a"}]},
+  {featureType:"road",elementType:"geometry",stylers:[{color:"#1e2433"}]},
+  {featureType:"road",elementType:"labels.text.fill",stylers:[{color:"#475569"}]},
+  {featureType:"road.highway",elementType:"geometry",stylers:[{color:"#2d3748"}]},
+  {featureType:"transit",stylers:[{visibility:"off"}]},
+  {featureType:"water",elementType:"geometry",stylers:[{color:"#0c1829"}]},
+  {featureType:"water",elementType:"labels.text.fill",stylers:[{color:"#1e3a5f"}]},
+];
+
+// Load MarkerClusterer library for the map (clusters 1000s of markers efficiently)
+const loadMarkerClusterer=()=>{
+  return new Promise((resolve,reject)=>{
+    if(window.markerClusterer){resolve(window.markerClusterer);return;}
+    const existing=document.querySelector("script[data-mc]");
+    if(existing){existing.addEventListener("load",()=>resolve(window.markerClusterer));return;}
+    const s=document.createElement("script");
+    s.src="https://unpkg.com/@googlemaps/markerclusterer@2.5.3/dist/index.umd.js";
+    s.async=true;s.setAttribute("data-mc","true");
+    s.onload=()=>resolve(window.markerClusterer);
+    s.onerror=()=>reject(new Error("Failed to load MarkerClusterer"));
+    document.head.appendChild(s);
+    setTimeout(()=>{if(!window.markerClusterer)reject(new Error("MarkerClusterer load timeout"));},8000);
+  });
+};
+
+// Load Google Maps JavaScript API dynamically
+const loadGoogleMapsJS=(key)=>{
+  return new Promise((resolve,reject)=>{
+    if(window.google?.maps?.Map){resolve(window.google.maps);return;}
+    const existing=document.querySelector("script[data-gmaps]");
+    if(existing){
+      existing.addEventListener("load",()=>resolve(window.google.maps));
+      existing.addEventListener("error",()=>reject(new Error("Failed to load Google Maps JS")));
+      return;
+    }
+    const s=document.createElement("script");
+    s.src=`https://maps.googleapis.com/maps/api/js?key=${key}&libraries=places&loading=async&v=weekly&callback=__gmReady__`;
+    s.async=true;s.defer=true;
+    s.setAttribute("data-gmaps","true");
+    window.__gmReady__=()=>resolve(window.google.maps);
+    s.onerror=()=>reject(new Error("Script load blocked — likely CSP (use the standalone HTML)"));
+    document.head.appendChild(s);
+    setTimeout(()=>{if(!window.google?.maps?.Map)reject(new Error("Timeout — script blocked by browser sandbox"));},8000);
+  });
+};
+const PRIS=["Low","Medium","High","Critical"];
+const PCOL={Low:"#6b7280",Medium:"#3b82f6",High:"#f59e0b",Critical:"#ef4444"};
+const TMPLS=[{id:"cold",label:"Cold Outreach",icon:"🧊",desc:"First contact"},{id:"followup",label:"Follow-Up",icon:"🔔",desc:"Chase no response"},{id:"postmeet",label:"Post-Meeting",icon:"🤝",desc:"Recap after call"},{id:"proposal",label:"Proposal Follow-Up",icon:"📄",desc:"Chase sent proposal"},{id:"winback",label:"Win-Back",icon:"🔄",desc:"Re-engage quiet lead"},{id:"checkin",label:"Check-In",icon:"📅",desc:"Nurture long-term"}];
+const BIZ=[
+  {label:"Technology / IT",q:"technology company IT services"},
+  {label:"Legal / Solicitors",q:"solicitors law firm"},
+  {label:"Healthcare / Clinics",q:"private clinic medical centre"},
+  {label:"Hotels / Hospitality",q:"hotel hospitality"},
+  {label:"Restaurants / Food",q:"restaurant cafe"},
+  {label:"Logistics / Warehousing",q:"logistics warehouse transport"},
+  {label:"Retail / Shops",q:"retail shop store"},
+  {label:"Finance / Accountants",q:"accountants financial services"},
+  {label:"Construction",q:"construction contractor builder"},
+  {label:"Manufacturing",q:"manufacturing factory"},
+  {label:"Education",q:"school college university"},
+  {label:"Professional Services",q:"consulting agency"},
+  {label:"Car Dealerships",q:"car dealership motor group"},
+  {label:"Pharmacies",q:"pharmacy chemist"},
+  {label:"Estate Agents",q:"estate agents property"},
+];
+
+// Keyword variations for "Deep Search" — runs multiple queries to maximize results
+const QUERY_VARIATIONS={
+  "Technology / IT":["technology company","IT services","software development","tech startup","IT support","managed services","cybersecurity","cloud services"],
+  "Legal / Solicitors":["solicitors","law firm","lawyers","legal services","barristers","conveyancing solicitors","family law","personal injury solicitors"],
+  "Healthcare / Clinics":["private clinic","medical centre","GP practice","physiotherapy","dental practice","health clinic","diagnostic centre","specialist clinic"],
+  "Hotels / Hospitality":["hotel","boutique hotel","guest house","bed and breakfast","resort","conference hotel"],
+  "Restaurants / Food":["restaurant","cafe","bistro","gastropub","fine dining","food truck","catering","takeaway"],
+  "Logistics / Warehousing":["logistics","warehouse","transport company","freight","distribution centre","courier","shipping","haulage"],
+  "Retail / Shops":["retail shop","boutique","store","fashion shop","gift shop","specialty store","convenience store"],
+  "Finance / Accountants":["accountants","financial services","bookkeepers","tax consultants","audit firms","payroll services","financial advisors","wealth management"],
+  "Construction":["construction company","building contractor","builder","civil engineering","electrical contractor","plumbing","roofing","architectural firm"],
+  "Manufacturing":["manufacturing","factory","industrial","fabrication","engineering company","production","precision engineering"],
+  "Education":["school","college","university","training centre","tutoring","language school","education provider"],
+  "Professional Services":["consulting","marketing agency","business consultant","HR consultancy","management consultant","creative agency","digital agency"],
+  "Car Dealerships":["car dealership","motor group","car sales","auto dealer","vehicle showroom","used car dealer"],
+  "Pharmacies":["pharmacy","chemist","dispensary","drugstore"],
+  "Estate Agents":["estate agents","property agency","letting agents","property management","real estate","commercial property"],
+};
+
+const SM_COL={Prospect:"0x818cf8",Contacted:"0x38bdf8",Qualified:"0xfbbf24",Proposal:"0xa78bfa",Negotiation:"0xf472b6","Closed Won":"0x34d399","Closed Lost":"0xf87171"};
+
+// Business categories with distinct colours for map markers + filtering
+// Each category has sub-categories that can be assigned to leads
+const CATEGORIES={
+  "Technology":{color:"#3b82f6",subs:["Software Development","IT Services","Cybersecurity","SaaS / Cloud","Tech Startup","Managed Services","Web/Digital Agency","E-commerce"]},
+  "Legal":{color:"#a855f7",subs:["Solicitors","Barristers","Conveyancing","Family Law","Personal Injury","Commercial Law","Criminal Law","Property Law"]},
+  "Healthcare":{color:"#ef4444",subs:["GP Practice","Specialist Clinic","Dental Practice","Physiotherapy","Diagnostic","Mental Health","Veterinary","Pharmacy"]},
+  "Hospitality":{color:"#f59e0b",subs:["Hotel","Restaurant","Cafe","Pub / Bar","Catering","Bed & Breakfast","Event Venue","Fast Food"]},
+  "Retail":{color:"#ec4899",subs:["Fashion / Clothing","Electronics","Speciality Store","Convenience Store","Department Store","Boutique","Gift Shop","Home & Garden"]},
+  "Finance":{color:"#10b981",subs:["Accountants","Financial Advisors","Tax Consultants","Audit","Wealth Management","Insurance","Mortgage Brokers","Bookkeeping"]},
+  "Construction":{color:"#f97316",subs:["General Contractor","Electrical","Plumbing","Architectural","Civil Engineering","Roofing","Landscaping","Painting & Decorating"]},
+  "Manufacturing":{color:"#64748b",subs:["Industrial","Engineering","Fabrication","Production","Food Production","Pharmaceutical","Precision Engineering"]},
+  "Professional Services":{color:"#06b6d4",subs:["Consulting","Marketing Agency","Creative Agency","HR Consultancy","Recruitment","Business Coaching","PR / Communications","Translation"]},
+  "Logistics":{color:"#8b5cf6",subs:["Transport","Warehousing","Courier","Shipping","Haulage","Freight","Distribution","Removals"]},
+  "Education":{color:"#14b8a6",subs:["School","College / University","Training Centre","Language School","Tutoring","Childcare","Vocational"]},
+  "Automotive":{color:"#dc2626",subs:["Car Dealership","Garage / Mechanic","Body Shop","Tyre Centre","Car Wash","Car Rental","Motor Factor"]},
+  "Real Estate":{color:"#eab308",subs:["Estate Agents","Property Management","Letting Agents","Commercial Property","Auctioneers","Surveyors","Architects"]},
+  "Beauty & Wellness":{color:"#f472b6",subs:["Salon","Spa","Barbershop","Gym","Yoga / Pilates","Nail Bar","Beauty Clinic"]},
+  "Other":{color:"#64748b",subs:["Other"]},
+};
+
+// Ordered list of category names for UI dropdowns
+const CAT_ORDER=Object.keys(CATEGORIES);
+
+// ── eir Business SMB FOTS PRODUCT CATALOGUE ──────────────────────────────────
+// Products you sell. Each has a category (Broadband/Mobile/Voice), tag colour,
+// and a "targetType" that drives the bonus calculation.
+const PRODUCTS={
+  // BROADBAND — counts toward broadband target (1 average per visit)
+  "FTTH":      {category:"Broadband",color:"#3b82f6",icon:"🌐",targetType:"broadband",description:"Fibre to the Home"},
+  "FTTC":      {category:"Broadband",color:"#06b6d4",icon:"🌐",targetType:"broadband",description:"Fibre to the Cabinet"},
+  "NBI":       {category:"Broadband",color:"#0ea5e9",icon:"🌐",targetType:"broadband",description:"National Broadband Ireland"},
+  "5G POD":    {category:"Broadband",color:"#8b5cf6",icon:"📡",targetType:"broadband",description:"5G Fixed Wireless"},
+  // MOBILE — counts toward mobile target (15+ products, 2+ handsets for payout)
+  "SIMO":      {category:"Mobile",   color:"#10b981",icon:"📱",targetType:"mobile_simo",description:"SIM Only — €20 per processed"},
+  "Handset":   {category:"Mobile",   color:"#059669",icon:"📲",targetType:"mobile_handset",description:"Mobile + device — €50 per RGU"},
+  // VOICE — eir Business voice products (no bonus by default; bonus rate can be set per-product)
+  "VOIP":      {category:"Voice",    color:"#a855f7",icon:"☎️",targetType:"voice",description:"VoIP / Hosted PBX"},
+  "Landline":  {category:"Voice",    color:"#c084fc",icon:"📞",targetType:"voice",description:"Business landline"},
+};
+const PRODUCT_LIST=Object.keys(PRODUCTS);
+const PRODUCT_CATEGORIES=["Broadband","Mobile","Voice"];
+
+// ── BONUS STRUCTURE — SMB FOTS Broadband target ──────────────────────────────
+// Target = 1 average broadband product per visit. The tier you achieve sets your payout.
+// "ratio" = (your processed broadband products) / (target count); 100% = 1 product per target visit
+const BROADBAND_TIERS=[
+  {threshold:1.30,label:"130%",perVisit:160,monthly:4160,yearly:54080,color:"#10b981"},
+  {threshold:1.20,label:"120%",perVisit:135,monthly:3240,yearly:42120,color:"#22c55e"},
+  {threshold:1.10,label:"110%",perVisit:100,monthly:2200,yearly:28600,color:"#84cc16"},
+  {threshold:1.00,label:"100%",perVisit:75, monthly:1500,yearly:19500,color:"#eab308"},
+  {threshold:0.90,label:"90%", perVisit:30, monthly:540, yearly:7020, color:"#f59e0b"},
+  {threshold:0,   label:"<90%",perVisit:0,  monthly:0,   yearly:0,    color:"#64748b"},
+];
+
+// Mobile target — TWO paths to 100% payout:
+//   Path A: 15+ mobile products (mix) WITH 2+ handsets
+//   Path B: 20+ SIMOs alone (no handset required)
+const MOBILE_TIERS=[
+  {label:"15+ products + 2+ handsets",   payoutPct:100,color:"#10b981",path:"A",check:r=>r.mobileCount>=15&&r.handsetCount>=2},
+  {label:"20+ SIMOs (no handset needed)",payoutPct:100,color:"#10b981",path:"B",check:r=>r.simoCount>=20},
+  {label:"10–14 products + 2+ handsets", payoutPct:50, color:"#f59e0b",path:"A",check:r=>r.mobileCount>=10&&r.handsetCount>=2},
+  {label:"Below mobile target",          payoutPct:0,  color:"#64748b",path:"-",check:r=>true},
+];
+const SIMO_RATE=20;     // €20 per SIMO processed
+const HANDSET_RATE=50;  // €50 per Handset RGU processed
+
+// ── BUSINESS TYPE COMPLIANCE CHECKLISTS ─────────────────────────────────────
+// Each lead can be tagged with a business type. Tagging unlocks a compliance
+// checklist with the verification items required before a sale can be submitted.
+// Items have unique IDs so the checked state can be persisted on each lead.
+const BUSINESS_TYPES={
+  "LTD":{
+    label:"LTD Company",
+    color:"#3b82f6",
+    bgLight:"#dbeafe",
+    icon:"🏢",
+    description:"Limited Company — must be verified on CRO",
+    sections:[
+      {
+        title:"Company verification",
+        items:[
+          {id:"ltd_crn",         label:"Valid Company Registration Number & current listed directors checked",required:true,links:[{url:"https://core.cro.ie/",label:"CRO"},{url:"https://www.stubbsgazette.ie/",label:"Stubbs Gazette"},{url:"https://www.solocheck.ie/",label:"SoloCheck"}]},
+          {id:"ltd_status",      label:"Status checked: Active/Normal — NOT Dissolved",required:true},
+          {id:"ltd_name_match",  label:"Company name matches CRO website EXACTLY",required:true},
+          {id:"ltd_signatory",   label:"Contract signed by authorised signatory ONLY (Director's Authorisation Email attached if not a listed Director)",required:true},
+        ],
+      },
+      {
+        title:"Proof of Address — All mobile sales & when available for fixed sales",
+        items:[
+          {id:"ltd_poa_recent",  label:"Dated within the last 3 months",required:true},
+          {id:"ltd_poa_name",    label:"Matches registered company name on CRO & authorised signatory name",required:true},
+          {id:"ltd_poa_address", label:"Matches service address & Eircode",required:true},
+        ],
+      },
+      {
+        title:"Eircode",
+        items:[
+          {id:"ltd_eircode_match",label:"Eircode matches the exact premises",required:true},
+          {id:"ltd_eircode_single",label:"No multiple Eircodes on one R6 account",required:true},
+          {id:"ltd_eircode_caf", label:"Each Eircode has a separate LBF & Salesforce CAF",required:true},
+        ],
+      },
+      {
+        title:"Proof of ID — All mobile sales (& DOB for NBI sales)",
+        items:[
+          {id:"ltd_id_type",     label:"Passport or Driving Licence ONLY & in date",required:true},
+        ],
+      },
+      {
+        title:"IBAN (Irish ONLY) — ALL SALES including Add Subs",
+        items:[
+          {id:"ltd_iban",        label:"Irish IBAN validated",required:true,links:[{url:"https://www.ibancalculator.com/",label:"IBAN Calculator"}]},
+        ],
+      },
+    ],
+  },
+  "SoleTrader":{
+    label:"Sole Trader / CLG / Partnership / Unlimited",
+    color:"#8b5cf6",
+    bgLight:"#ede9fe",
+    icon:"👤",
+    description:"Sole trader, CLG, partnership, or unlimited company",
+    sections:[
+      {
+        title:"VAT & business registration",
+        items:[
+          {id:"st_vat",          label:"VAT Number provided (if VAT registered)",required:false,links:[{url:"https://ec.europa.eu/taxation_customs/vies/#/vat-validation",label:"VAT VIES Check"}]},
+          {id:"st_reg_letter",   label:"Letter from Accountant / Business Reg Cert / Business Reg Number (if below VAT threshold)",required:true},
+        ],
+      },
+      {
+        title:"Proof of Address — ALL SALES",
+        items:[
+          {id:"st_poa_recent",   label:"Dated within the last 3 months",required:true},
+          {id:"st_poa_name",     label:"Matches business name & authorised signatory name",required:true},
+          {id:"st_poa_address",  label:"Matches service address & Eircode",required:true},
+        ],
+      },
+      {
+        title:"Eircode",
+        items:[
+          {id:"st_eircode_match",label:"Eircode matches the exact premises",required:true},
+          {id:"st_eircode_single",label:"No multiple Eircodes on one R6 account",required:true},
+          {id:"st_eircode_caf",  label:"Each Eircode has a separate LBF & Salesforce CAF",required:true},
+        ],
+      },
+      {
+        title:"Proof of ID — ALL SALES",
+        items:[
+          {id:"st_id_type",      label:"Passport or Driving Licence ONLY & in date",required:true},
+        ],
+      },
+      {
+        title:"CLG & Unlimited Company ONLY",
+        items:[
+          {id:"st_clg_crn",      label:"Valid Company Registration Number, status & current directors checked",required:false,links:[{url:"https://core.cro.ie/",label:"CRO"}]},
+          {id:"st_clg_signatory",label:"Name matches CRO & contract signed by authorised signatory ONLY (Director's Auth Email if not a listed Director)",required:false},
+        ],
+      },
+      {
+        title:"IBAN (Irish ONLY) — ALL SALES including Add Subs",
+        items:[
+          {id:"st_iban",         label:"Irish IBAN validated",required:true,links:[{url:"https://www.ibancalculator.com/",label:"IBAN Calculator"}]},
+        ],
+      },
+    ],
+  },
+};
+
+// Compute compliance progress for a lead (only counts required items + optional that are ticked)
+const complianceStatus=(lead)=>{
+  if(!lead?.businessType||!BUSINESS_TYPES[lead.businessType])return null;
+  const def=BUSINESS_TYPES[lead.businessType];
+  const checked=lead.checklist||{};
+  let requiredTotal=0,requiredDone=0,optionalDone=0;
+  for(const sec of def.sections){
+    for(const item of sec.items){
+      if(item.required){requiredTotal++;if(checked[item.id])requiredDone++;}
+      else if(checked[item.id])optionalDone++;
+    }
+  }
+  const pct=requiredTotal>0?Math.round(requiredDone/requiredTotal*100):0;
+  return{businessType:lead.businessType,def,requiredTotal,requiredDone,optionalDone,pct,isReady:requiredDone===requiredTotal&&requiredTotal>0};
+};
+
+// Compute total earnings for a list of processed products
+// Returns { broadbandCount, mobileCount, handsetCount, simoCount, broadbandTier, mobileTier, mobilePayoutPct, simoEarnings, handsetEarnings, totalMobile, broadbandBonus, total }
+const calcEarnings=(processedProducts,targetVisits=1)=>{
+  const r={broadbandCount:0,mobileCount:0,handsetCount:0,simoCount:0,voiceCount:0};
+  for(const p of processedProducts){
+    const def=PRODUCTS[p.type];if(!def)continue;
+    const qty=p.quantity||1;
+    if(def.targetType==="broadband")r.broadbandCount+=qty;
+    else if(def.targetType==="mobile_simo"){r.simoCount+=qty;r.mobileCount+=qty;}
+    else if(def.targetType==="mobile_handset"){r.handsetCount+=qty;r.mobileCount+=qty;}
+    else if(def.targetType==="voice")r.voiceCount+=qty;
+  }
+  // Broadband tier (ratio of count to target visits)
+  const bbRatio=targetVisits>0?r.broadbandCount/targetVisits:0;
+  const bbTier=BROADBAND_TIERS.find(t=>bbRatio>=t.threshold)||BROADBAND_TIERS[BROADBAND_TIERS.length-1];
+  // Mobile tier — first matching path wins (Path A or Path B)
+  let mbTier=MOBILE_TIERS[MOBILE_TIERS.length-1];
+  for(const t of MOBILE_TIERS){if(t.check(r)){mbTier=t;break;}}
+  const simoEarn=r.simoCount*SIMO_RATE*(mbTier.payoutPct/100);
+  const handsetEarn=r.handsetCount*HANDSET_RATE*(mbTier.payoutPct/100);
+  const mobileTotal=simoEarn+handsetEarn;
+  const bbBonus=bbTier.perVisit*targetVisits;
+  return{...r,bbRatio,broadbandTier:bbTier,mobileTier:mbTier,mobilePayoutPct:mbTier.payoutPct,simoEarnings:simoEarn,handsetEarnings:handsetEarn,totalMobile:mobileTotal,broadbandBonus:bbBonus,total:mobileTotal+bbBonus,targetVisits};
+};
+
+// Categorization patterns — ordered specific-to-general within each category
+// Longer keywords have higher priority (more specific match wins)
+// Format: {category: {subCategory: [keywords...]}}
+const CAT_PATTERNS={
+  "Legal":{
+    "Solicitors":["solicitor","solicitors","law firm","law office","law practice","law centre","legal services","legal advice","attorneys at law","lawyers"],
+    "Barristers":["barrister"],
+    "Conveyancing":["conveyancing","conveyancer"],
+    "Family Law":["family law","matrimonial law","divorce lawyer"],
+    "Personal Injury":["personal injury","injury claim","claims solicitor"],
+    "Commercial Law":["commercial law","corporate law"],
+    "Criminal Law":["criminal law","criminal defence"],
+    "Property Law":["property law","property solicitor"],
+    
+  },
+  "Healthcare":{
+    "GP Practice":["gp practice","gp clinic","doctor surgery","family doctor","general practitioner","medical practice","medical centre","health centre","primary care"],
+    "Dental Practice":["dental practice","dental surgery","dental clinic","dentist","orthodontist","dental care"],
+    "Physiotherapy":["physiotherapy","physiotherapist","physio clinic","sports physio"],
+    "Specialist Clinic":["specialist clinic","private clinic","consultant clinic","cardiology","dermatology","gynaecology","cosmetic clinic","aesthetic clinic"],
+    "Diagnostic":["diagnostic centre","x-ray clinic","ultrasound","mri clinic","scan centre"],
+    "Mental Health":["mental health","psychotherapy","counselling service","psychiatrist","psychologist"],
+    "Veterinary":["veterinary","veterinarian","animal hospital","vet clinic","vet practice"],
+    "Pharmacy":["pharmacy","pharmacist","chemist","dispensary","drugstore"],
+  },
+  "Finance":{
+    "Accountants":["accountancy","accountant","accountants","accounting","chartered accountant","certified accountant","accounting firm","accounting services","accounting practice","cloud accounts","tax accounting","simpletax","fasttax","beyond accounting"],
+    "Tax Consultants":["tax consultant","tax advisor","tax services","tax preparation","tax accountant","tax agent","tax ltd"],
+    "Audit":["audit firm","auditor","auditing services","audit services"],
+    "Bookkeeping":["bookkeeping","bookkeeper","book keeping"],
+    "Financial Advisors":["financial advisor","financial adviser","financial planning","financial planner","financial consultant","financial services","financial solutions","financial brokers","financial broker"],
+    "Wealth Management":["wealth management","wealth advisor","asset management","investment manager","investment advisor","investment firm","fund management","wealth solutions","private wealth"],
+    "Insurance":["insurance broker","insurance brokers","insurance agency","insurance services","insurance company","insurance group","insurance ltd","life insurance","health insurance","car insurance"],
+    "Mortgage Brokers":["mortgage broker","mortgage advisor","mortgage services","mortgages","mortgageline","home loans","switch mortgage"],
+  },
+  "Hospitality":{
+    "Hotel":["hotel","resort","inn","lodge"],
+    "Restaurant":["restaurant","steakhouse","brasserie","bistro","gastro pub","fine dining","eatery","grill house"],
+    "Cafe":["cafe","coffee shop","coffee house","tea room","patisserie","bakery cafe"],
+    "Pub / Bar":["pub","tavern","bar & grill","wine bar","cocktail bar","gastropub","public house"],
+    "Catering":["catering","caterer","event catering","wedding catering","outside catering"],
+    "Bed & Breakfast":["bed and breakfast","b&b","b & b","guest house","guesthouse","accommodation","self catering","holiday home","holiday rental","vacation rental","apartments","serviced apartments","lodging","stays","airbnb"],
+    "Fast Food":["fast food","takeaway","take away","take-away","chipper","fish and chips"],
+    "Event Venue":["event venue","conference centre","wedding venue","banquet hall"],
+  },
+  "Construction":{
+    "Electrical":["electrical contractor","electrician","electrical services","electrical installation","electrical","sparks"],
+    "Plumbing":["plumbing","plumber","plumbing services","heating engineer","gas engineer","drainage","sewer service","drain cleaning"],
+    "Architectural":["architect","architectural services","architecture firm","architectural design"],
+    "Civil Engineering":["civil engineering","civil engineer","groundworks","road construction"],
+    "Roofing":["roofing","roofer","roof repair","slating"],
+    "Landscaping":["landscaping","landscaper","gardener","garden services","grounds maintenance"],
+    "Painting & Decorating":["painter and decorator","painting and decorating","decorator","painter"],
+    "General Contractor":["construction company","construction services","general contractor","building contractor","builders","building services","main contractor"],
+  },
+  "Automotive":{
+    "Car Dealership":["car dealership","motor dealer","car sales","auto dealer","vehicle showroom","car showroom","used car dealer","car dealer"],
+    "Garage / Mechanic":["garage","car garage","mechanic","auto repair","car repair","mot test","mot centre","car servicing"],
+    "Body Shop":["body shop","body repair","panel beater","crash repair","car bodyshop"],
+    "Tyre Centre":["tyre centre","tyre services","tyres ireland","tyre shop"],
+    "Car Wash":["car wash","valet centre","car valeting"],
+    "Car Rental":["car rental","car hire","vehicle rental","van hire"],
+  },
+  "Beauty & Wellness":{
+    "Salon":["hair salon","beauty salon","hairdresser","hairdressing","hair studio"],
+    "Spa":["spa","day spa","health spa","wellness spa"],
+    "Barbershop":["barber","barbershop","barber shop","barbers"],
+    "Gym":["gym","fitness centre","fitness studio","crossfit","health club"],
+    "Yoga / Pilates":["yoga studio","pilates studio","yoga centre","pilates","yoga"],
+    "Nail Bar":["nail bar","nail salon","nail studio","nails"],
+    "Beauty Clinic":["beauty clinic","aesthetic clinic","skin clinic","laser clinic","cosmetic clinic"],
+  },
+  "Real Estate":{
+    "Estate Agents":["estate agent","estate agency","property agent","auctioneers","real estate"],
+    "Letting Agents":["letting agent","letting agency","rental agency","lettings"],
+    "Property Management":["property management","management agent","block management"],
+    "Commercial Property":["commercial property","industrial property","commercial real estate"],
+    "Surveyors":["surveyor","surveyors","surveys","surveying","quantity surveyor","building surveyor"],
+  },
+  "Education":{
+    "School":["school","national school","primary school","secondary school","grammar school","gaelscoil"],
+    "College / University":["college","university","institute of technology","third level"],
+    "Training Centre":["training centre","training services","training academy","skills academy","safety training","first aid training","corporate training","training ltd"],
+    "Language School":["language school","english school","language academy","esl school"],
+    "Tutoring":["tutoring","tutor service","grinds school","educational support"],
+    "Childcare":["childcare","creche","cr\u00e8che","montessori","early years","preschool"],
+    "Vocational":["vocational training","apprenticeship","trade school"],
+  },
+  "Logistics":{
+    "Transport":["transport company","transportation","haulage","freight transport"],
+    "Warehousing":["warehouse","warehousing","storage facility","distribution centre"],
+    "Courier":["courier","courier services","same day delivery","parcel delivery"],
+    "Shipping":["shipping","shipping company","freight forwarder","logistics company"],
+    "Removals":["removals","removal company","house removals","office removals"],
+  },
+  "Manufacturing":{
+    "Industrial":["industrial supplier","industrial services","industrial company"],
+    "Engineering":["engineering company","engineering services","engineering works","mechanical engineering"],
+    "Fabrication":["fabrication","fabricator","steel fabrication","metal fabrication"],
+    "Production":["production company","production facility","manufacturer","manufacturing"],
+    "Food Production":["food production","food manufacturer","bakery production","brewery","distillery"],
+    "Pharmaceutical":["pharmaceutical","pharma","biotech","biopharm"],
+    "Precision Engineering":["precision engineering","precision parts","cnc machining"],
+  },
+  "Retail":{
+    "Fashion / Clothing":["clothing store","fashion store","menswear","womenswear","fashion boutique","clothing shop"],
+    "Electronics":["electronics store","electronics retailer","phone shop","computer shop"],
+    "Speciality Store":["speciality store","specialty store","specialist retailer","bookstore","book shop","music shop","record shop","jewellery shop","jewellers"],
+    "Convenience Store":["convenience store","corner shop","spar","centra","londis"],
+    "Department Store":["department store","department shop"],
+    "Boutique":["boutique"],
+    "Gift Shop":["gift shop","gift store","souvenir shop"],
+    "Home & Garden":["garden centre","garden shop","home store","furniture store","interiors shop","hardware store"],
+    
+  },
+  "Professional Services":{
+    "Consulting":["consulting","consultancy","business consultant","management consultant"],
+    "Marketing Agency":["marketing agency","marketing services","digital marketing","advertising agency","seo agency","seo services","seo dublin","seo ","digital media","media agency"],
+    "Creative Agency":["creative agency","design studio","graphic design","branding agency"],
+    "HR Consultancy":["hr consultancy","hr services","human resources","hr ltd","hr group","hr search","principle hr"],
+    "Recruitment":["recruitment agency","recruitment services","recruitment company","recruitment ltd","recruitment","recruiter","headhunter","staffing agency","talent search","talent acquisition","search talent","executive search"],
+    "Business Coaching":["business coaching","executive coaching","business coach","leadership coach"],
+    "PR / Communications":["public relations","pr agency","communications agency","pr firm"],
+    "Translation":["translation services","translator","translation agency","interpreting services"],
+  },
+  "Technology":{
+    "Software Development":["software development","software developer","software house","software company","software ltd","software","app development","mobile app development","software engineering"],
+    "IT Services":["it services","it support","it company","it solutions","it consultancy","information technology","computer services","computer support","it.ie","managed it","it search","it recruitment"],
+    "Cybersecurity":["cybersecurity","cyber security","information security","it security"],
+    "SaaS / Cloud":["saas","software as a service","cloud services","cloud computing","cloud provider"],
+    "Tech Startup":["tech startup","technology startup","tech company","technology company","tech solutions","technology solutions"],
+    "Managed Services":["managed services","managed it","msp ","msps "],
+    "Web/Digital Agency":["web design","web development","web agency","digital agency","web studio"],
+    "E-commerce":["e-commerce","ecommerce platform","online retailer","online store"],
+  },
+};
+
+// Build reverse lookup: sub-category text -> {category, subCategory}
+const SUB_TO_CAT={};
+for(const[cat,subs] of Object.entries(CAT_PATTERNS)){
+  for(const sub of Object.keys(subs))SUB_TO_CAT[sub.toLowerCase()]=cat;
+}
+
+// Categorize a lead — ALWAYS recomputes from industry + company name
+// Ignores any stored category (which may be wrong from old buggy versions)
+// Only honors `categoryOverride` for manual user overrides
+const categorize=(lead)=>{
+  // Honor explicit manual override only
+  if(lead?.categoryOverride&&CATEGORIES[lead.categoryOverride]){
+    return{category:lead.categoryOverride,subCategory:lead.subCategoryOverride||lead.industry||lead.categoryOverride};
+  }
+  // Always recompute from industry + company text
+  const ind=(lead?.industry||"").toLowerCase().trim();
+  const co=(lead?.company||"").toLowerCase().trim();
+  const text=`${ind} ${co}`.trim();
+  if(!text)return{category:"Other",subCategory:"Other"};
+
+  // 1. Exact industry match to a sub-category name
+  if(ind&&SUB_TO_CAT[ind])return{category:SUB_TO_CAT[ind],subCategory:lead.industry};
+
+  // 2. Score-based: longest matching keyword wins (specific beats generic)
+  let bestCat=null,bestSub=null,bestScore=0;
+  for(const[cat,subs] of Object.entries(CAT_PATTERNS)){
+    for(const[sub,kws] of Object.entries(subs)){
+      for(const kw of kws){
+        if(text.includes(kw)&&kw.length>bestScore){
+          bestScore=kw.length;
+          bestCat=cat;
+          bestSub=sub;
+        }
+      }
+    }
+  }
+  if(bestCat)return{category:bestCat,subCategory:bestSub};
+  // Industry-as-category fallback — BUT only for trustworthy industries
+  // Skip "Technology", "Other", "Professional Services" since users commonly misapply these
+  const UNTRUSTED=new Set(["Technology","Other","Professional Services","Retail"]);
+  if(lead?.industry&&!UNTRUSTED.has(lead.industry)){
+    if(CATEGORIES[lead.industry])return{category:lead.industry,subCategory:lead.industry};
+    for(const c of CAT_ORDER){
+      if(!UNTRUSTED.has(c)&&c.toLowerCase()===ind)return{category:c,subCategory:lead.industry};
+    }
+  }
+  return{category:"Other",subCategory:lead?.industry||"Other"};
+};
+
+const SAMPLE=[{"id":"gp-0","company":"Keenan & Company Solicitors LLP","contact":"","phone":"+35315634676","email":"","address":"Unit 1, Windmill Lodge, Windmill Rd, Crumlin, Dublin, D12 YRK2","county":"Dublin","industry":"Professional Services","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n0","text":"⭐ 5/5 · 219 Google reviews · Found via: solicitors Dublin · https://www.keenanandco.ie/","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3215163,"lng":-6.3157255,"website":"https://www.keenanandco.ie/","source":"apify"},{"id":"gp-1","company":"Lorraine Stephens Solicitors","contact":"","phone":"+35316233300","email":"","address":"Park West Enterprise Centre, Unit 45, Parkwest, Dublin 12, D12 FD82","county":"Dublin","industry":"Professional Services","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"Medium","notes":[{"id":"n1","text":"⭐ 4.3/5 · 31 Google reviews · Found via: solicitors Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3337851,"lng":-6.3672015,"website":"","source":"apify"},{"id":"gp-2","company":"Cullen & Co. Solicitors","contact":"","phone":"+35314536114","email":"","address":"88 Tyrconnell Rd, Inchicore, Dublin, D08 FW01","county":"Dublin","industry":"Professional Services","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"Medium","notes":[{"id":"n2","text":"⭐ 4.5/5 · 84 Google reviews · Found via: solicitors Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3357423,"lng":-6.3268285,"website":"","source":"apify"},{"id":"gp-9","company":"Berkeley Solicitors","contact":"","phone":"+35315175778","email":"","address":"Unit 3, Christchurch Hall, High St, The Liberties, Dublin 8, D08 P403","county":"Dublin","industry":"Professional Services","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n9","text":"⭐ 4.8/5 · 729 Google reviews · Found via: law firms Dublin · http://www.berkeleysolicitors.ie/","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3430516,"lng":-6.2736223,"website":"http://www.berkeleysolicitors.ie/","source":"apify"},{"id":"gp-19","company":"FastTax.ie","contact":"","phone":"+35315242332","email":"","address":"117 Baggot Ct, Dublin 2, D02 DD42","county":"Dublin","industry":"Other","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n19","text":"⭐ 4.9/5 · 332 Google reviews · Found via: tax consultants Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3366908,"lng":-6.2501932,"website":"https://www.fasttax.ie/","source":"apify"},{"id":"gp-21","company":"Rockwell","contact":"","phone":"+35312966120","email":"","address":"103 Francis St, The Liberties, Dublin 8, D08 Y70F","county":"Dublin","industry":"Finance","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n21","text":"⭐ 4.9/5 · 148 Google reviews · Found via: financial advisors Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3406936,"lng":-6.2746567,"website":"http://www.rockwellfinancial.ie/contact","source":"apify"},{"id":"gp-22","company":"Progressive Financial Services","contact":"","phone":"+35314165598","email":"","address":"Ardee Court, Unit 1, Ardee St, Dublin 8","county":"Dublin","industry":"Finance","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n22","text":"⭐ 5/5 · 280 Google reviews · Found via: financial advisors Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.338822,"lng":-6.2794319,"website":"http://www.progressivefs.ie/","source":"apify"},{"id":"gp-23","company":"Mason Wealth Management","contact":"","phone":"+35319020001","email":"","address":"73 Leeson Street Lower, Dublin 2, D02 X524","county":"Dublin","industry":"Professional Services","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n23","text":"⭐ 5/5 · 243 Google reviews · Found via: financial advisors Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.334159,"lng":-6.2546216,"website":"https://masonwealth.ie/","source":"apify"},{"id":"gp-27","company":"Park Financial - Mortgage Broker","contact":"","phone":"+35314993000","email":"","address":"Unit 13 Cashel Business Centre, Kimmage, Dublin 12, D12 A567","county":"Dublin","industry":"Professional Services","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n27","text":"⭐ 5/5 · 1280 Google reviews · Found via: financial advisors Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3169783,"lng":-6.3018618,"website":"https://parkfinancial.ie/","source":"apify"},{"id":"gp-44","company":"Beyond Accounting","contact":"","phone":"+35316392963","email":"","address":"56 Fitzwilliam Square N, Dublin, D02 X224","county":"Dublin","industry":"Professional Services","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n44","text":"⭐ 4.8/5 · 84 Google reviews · Found via: audit firms Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3361115,"lng":-6.2519944,"website":"https://beyond.ie/","source":"apify"},{"id":"gp-57","company":"My Life Insurance","contact":"","phone":"+35315634338","email":"","address":"Charlemont House, 33 Charlemont St, Saint Kevin's, Dublin 2, D02 RW89","county":"Dublin","industry":"Finance","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n57","text":"⭐ 5/5 · 498 Google reviews · Found via: insurance brokers Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3309845,"lng":-6.2613169,"website":"https://mylifeinsurance.ie/","source":"apify"},{"id":"gp-63","company":"Xpress Health Recruitment","contact":"","phone":"+35312118883","email":"","address":"Unit 47, Park West Enterprise Centre, Lavery Ave, Cherry Orchard, Dublin 12","county":"Dublin","industry":"Healthcare","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n63","text":"⭐ 4.8/5 · 571 Google reviews · Found via: recruitment agencies Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3339921,"lng":-6.3671555,"website":"https://xpresshealth.ie/","source":"apify"},{"id":"gp-65","company":"Sigmar Recruitment","contact":"","phone":"+35314744600","email":"","address":"13 Hume St, Dublin 2, D02 F861","county":"Dublin","industry":"Other","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n65","text":"⭐ 4.8/5 · 1126 Google reviews · Found via: recruitment agencies Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.337853,"lng":-6.254697,"website":"https://www.sigmarrecruitment.com/","source":"apify"},{"id":"gp-66","company":"FRS Recruitment Dublin","contact":"","phone":"+35318340035","email":"","address":"124 Baggot Street Lower, Dublin 2, D02 R978","county":"Dublin","industry":"Professional Services","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n66","text":"⭐ 4.9/5 · 209 Google reviews · Found via: recruitment agencies Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3371839,"lng":-6.2507208,"website":"http://www.frsrecruitment.com/","source":"apify"},{"id":"gp-75","company":"CSM Strategic Growth Consultancy","contact":"","phone":"+35315789440","email":"","address":"20 Lower Stephen Street Lower, Dublin 2, D02 DT04","county":"Dublin","industry":"Professional Services","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n75","text":"⭐ 5/5 · 94 Google reviews · Found via: marketing agencies Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3413811,"lng":-6.2645086,"website":"https://www.csmagency.ie/","source":"apify"},{"id":"gp-78","company":"Vroom Digital","contact":"","phone":"+35315311777","email":"","address":"13 Adelaide Rd, Saint Kevin's, Dublin 2, D02 P950","county":"Dublin","industry":"Professional Services","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n78","text":"⭐ 5/5 · 52 Google reviews · Found via: marketing agencies Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.332598,"lng":-6.2596234,"website":"https://www.vroomdigital.ie/","source":"apify"},{"id":"gp-88","company":"Digital Sales","contact":"","phone":"+35315397207","email":"","address":"18 Herbert St, Dublin, D02 FK19","county":"Dublin","industry":"Professional Services","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n88","text":"⭐ 5/5 · 52 Google reviews · Found via: marketing agencies Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.335718,"lng":-6.245161,"website":"https://www.digitalsales.ie/","source":"apify"},{"id":"gp-90","company":"Wolfgang Digital","contact":"","phone":"+35316638020","email":"","address":"Denzille Ln, Dublin, D02 WD37","county":"Dublin","industry":"Professional Services","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n90","text":"⭐ 4.8/5 · 58 Google reviews · Found via: marketing agencies Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.341374,"lng":-6.2485754,"website":"https://www.wolfgangdigital.com/","source":"apify"},{"id":"gp-100","company":"The Clean Water Company","contact":"","phone":"+35315143838","email":"","address":"Unit B18, KCR Industrial Estate, Kimmage, Dublin, D12 A310","county":"Dublin","industry":"Other","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n100","text":"⭐ 4.9/5 · 225 Google reviews","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3151428,"lng":-6.2987283,"website":"https://www.cleanwater.ie/","source":"apify"},{"id":"gp-123","company":"GMC Mortgages","contact":"","phone":"+35316430900","email":"","address":"Unit 1, The Seapoint Building, 44/45 Clontarf Rd, Clontarf West, Dublin, D03 F4A7","county":"Dublin","industry":"Professional Services","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n123","text":"⭐ 5/5 · 645 Google reviews · Found via: insurance brokers Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3638152,"lng":-6.2195132,"website":"https://www.gmcmortgages.ie/","source":"apify"},{"id":"gp-126","company":"Royal London Ireland","contact":"","phone":"+35314293333","email":"","address":"Royal London Ireland, 47 St Stephen's Green, Dublin 2, D02 W634","county":"Dublin","industry":"Finance","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n126","text":"⭐ 4.8/5 · 270 Google reviews · Found via: insurance brokers Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3375615,"lng":-6.255912,"website":"https://www.royallondon.ie/","source":"apify"},{"id":"gp-128","company":"UCompare Insurance","contact":"","phone":"","email":"","address":"49 Blessington St, Phibsborough, Dublin 7, D07 YW81","county":"Dublin","industry":"Finance","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n128","text":"⭐ 4.8/5 · 230 Google reviews · Found via: insurance brokers Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3568242,"lng":-6.2689692,"website":"https://ucompare.ie/","source":"apify"},{"id":"gp-135","company":"3Q Recruitment Ltd.","contact":"","phone":"+35318783335","email":"","address":"1st Floor, Spencer Row, Mountjoy, Dublin 1, D01 R9T8","county":"Dublin","industry":"Professional Services","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n135","text":"⭐ 4.8/5 · 80 Google reviews · Found via: recruitment agencies Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3507269,"lng":-6.2526534,"website":"https://3qrecruitment.ie/","source":"apify"},{"id":"gp-136","company":"Reed Recruitment Agency","contact":"","phone":"+35314189952","email":"","address":"Ground Floor, Hampton House, 27 Mount Street Lower, Dublin, D02 FC43","county":"Dublin","industry":"Professional Services","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n136","text":"⭐ 4.8/5 · 86 Google reviews · Found via: recruitment agencies Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3384958,"lng":-6.2438114,"website":"https://www.reedglobal.ie/branches/reed-dublin","source":"apify"},{"id":"gp-138","company":"Next Generation Recruitment","contact":"","phone":"+35316629120","email":"","address":"38-39 Baggot Street Lower, Dublin 2, D02 T938","county":"Dublin","industry":"Professional Services","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n138","text":"⭐ 4.7/5 · 96 Google reviews · Found via: recruitment agencies Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3371853,"lng":-6.249584,"website":"https://www.nextgeneration.ie/","source":"apify"},{"id":"gp-139","company":"M Recruitment","contact":"","phone":"+35315155396","email":"","address":"17 Mount Street Lower, Dublin 2, D02 H242","county":"Dublin","industry":"Other","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n139","text":"⭐ 4.9/5 · 68 Google reviews · Found via: recruitment agencies Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.338804,"lng":-6.2445474,"website":"http://mrecruitment.ie/","source":"apify"},{"id":"gp-148","company":"Clontarf Hospital","contact":"","phone":"+35318332521","email":"","address":"Blackheath Park, Clontarf, Dublin 3, D03 AY95","county":"Dublin","industry":"Healthcare","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n148","text":"⭐ 4.7/5 · 56 Google reviews · Found via: recruitment agencies Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3669942,"lng":-6.2016535,"website":"http://www.ioh.ie/","source":"apify"},{"id":"gp-162","company":"Lantech IT Support","contact":"","phone":"+35314760030","email":"","address":"Merchant House, 27-30 Merchant's Quay, The Liberties, Dublin, D08 K3KD","county":"Dublin","industry":"Professional Services","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n162","text":"⭐ 4.8/5 · 73 Google reviews · Found via: IT companies Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3451167,"lng":-6.2757184,"website":"https://www.lantechgrp.com/","source":"apify"},{"id":"gp-168","company":"Square Root Solutions","contact":"","phone":"+35319081182","email":"","address":"Taylor's Ln, The Liberties, Dublin 8, D08 YPP9","county":"Dublin","industry":"Professional Services","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n168","text":"⭐ 5/5 · 94 Google reviews · Found via: IT companies Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3412682,"lng":-6.2839579,"website":"http://www.squareroot.ie/","source":"apify"},{"id":"gp-182","company":"Hampers & Co","contact":"","phone":"+35318511098","email":"","address":"7 Dollymount Ave, Clontarf East, Dublin 3, D03 K6X7","county":"Dublin","industry":"Retail","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n182","text":"⭐ 4.7/5 · 90 Google reviews","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3663545,"lng":-6.1819917,"website":"http://www.hampersandco.com/","source":"apify"},{"id":"gp-188","company":"Autograph Events","contact":"","phone":"","email":"","address":"33 Oakley Park, Clontarf, Dublin, D03 KC95","county":"Dublin","industry":"Other","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n188","text":"⭐ 5/5 · 52 Google reviews","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3676325,"lng":-6.1967239,"website":"https://www.autographevents.ie/","source":"apify"},{"id":"gp-189","company":"Ian Christie Electrical","contact":"","phone":"+353862525331","email":"","address":"20 Clontarf Park, Clontarf East, Dublin, D03 X659","county":"Dublin","industry":"Construction","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n189","text":"⭐ 4.8/5 · 108 Google reviews","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3599845,"lng":-6.1943086,"website":"http://www.ichristie.com/","source":"apify"},{"id":"gp-208","company":"Greavy & Co Accountants","contact":"","phone":"+35316040011","email":"","address":"8 Clanwilliam Square, Grand Canal Dock, Dublin 2, D02 PF75","county":"Dublin","industry":"Professional Services","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n208","text":"⭐ 5/5 · 62 Google reviews · Found via: accountants Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3396747,"lng":-6.2402976,"website":"https://greavyandco.ie/","source":"apify"},{"id":"gp-210","company":"ITAS Accounting","contact":"","phone":"+35315397999","email":"","address":"6 Marino Mart, Clontarf, Dublin, D03 K400","county":"Dublin","industry":"Professional Services","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n210","text":"⭐ 5/5 · 61 Google reviews · Found via: accountants Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3640658,"lng":-6.2328069,"website":"https://itasaccounting.ie/","source":"apify"},{"id":"gp-217","company":"Hanlon & Company Solicitors","contact":"","phone":"+35318369300","email":"","address":"6 Richmond Rd, Drumcondra, Dublin 3, D03 C434","county":"Dublin","industry":"Professional Services","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n217","text":"⭐ 4.7/5 · 113 Google reviews · Found via: solicitors Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3685936,"lng":-6.2547214,"website":"https://hanlonandco.com/","source":"apify"},{"id":"gp-221","company":"IMK Law Solicitors","contact":"","phone":"+35315472407","email":"","address":"75 Amiens St, Mountjoy, Dublin, D01 X535","county":"Dublin","industry":"Professional Services","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n221","text":"⭐ 4.9/5 · 2268 Google reviews · Found via: solicitors Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3545298,"lng":-6.2472589,"website":"https://imk-law.com/","source":"apify"},{"id":"gp-225","company":"David Walley & Co Solicitors","contact":"","phone":"+35318363655","email":"","address":"54 Amiens St, Mountjoy, Dublin 1, D01 P5F1","county":"Dublin","industry":"Professional Services","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n225","text":"⭐ 4.8/5 · 157 Google reviews · Found via: solicitors Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3534035,"lng":-6.2483831,"website":"http://www.davidwalley.ie/","source":"apify"},{"id":"gp-226","company":"Doyle and Company LLP Solicitors","contact":"","phone":"+35318383388","email":"","address":"123 Cabra Rd, Cabra East, Dublin 7, D07 CY91","county":"Dublin","industry":"Professional Services","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n226","text":"⭐ 4.7/5 · 79 Google reviews · Found via: solicitors Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3613485,"lng":-6.2858312,"website":"http://doyleandcompany.ie/","source":"apify"},{"id":"gp-230","company":"Gary Matthews Solicitors - Injury Law","contact":"","phone":"+35319036407","email":"","address":"Ormond Building, Ormond Quay Upper, Dublin 7","county":"Dublin","industry":"Professional Services","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n230","text":"⭐ 4.8/5 · 1219 Google reviews · Found via: solicitors Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3458355,"lng":-6.2713829,"website":"https://www.personalinjurysolicitorsdublin.info/","source":"apify"},{"id":"gp-231","company":"MB Solicitors","contact":"","phone":"+35315677343","email":"","address":"97 Malahide Rd, Grace Park, Dublin 3, D03 X2P6","county":"Dublin","industry":"Professional Services","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n231","text":"⭐ 4.7/5 · 191 Google reviews · Found via: solicitors Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3725628,"lng":-6.2224668,"website":"https://mbsolicitors.ie/","source":"apify"},{"id":"gp-238","company":"Citywide Financial Solutions","contact":"","phone":"+35315138710","email":"","address":"238 Swords Rd, Whitehall, Dublin, D09 H9N3","county":"Dublin","industry":"Finance","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n238","text":"⭐ 5/5 · 50 Google reviews · Found via: accountants Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.388662,"lng":-6.2454534,"website":"https://www.citywidefinancial.ie/","source":"apify"},{"id":"gp-242","company":"Dsob Financial Services Ltd.","contact":"","phone":"+35318117494","email":"","address":"Unit 18, Grattan Business Park, Dublin 17, D17 H680","county":"Dublin","industry":"Finance","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n242","text":"⭐ 5/5 · 199 Google reviews · Found via: financial advisors Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.4028505,"lng":-6.2168539,"website":"","source":"apify"},{"id":"gp-244","company":"Affinity Advisors","contact":"","phone":"+35316533120","email":"","address":"64 Mount Street Lower, Dublin 2, D02 TH77","county":"Dublin","industry":"Professional Services","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n244","text":"⭐ 5/5 · 514 Google reviews · Found via: financial advisors Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3394412,"lng":-6.2454105,"website":"http://affinityadv.ie/","source":"apify"},{"id":"gp-248","company":"Fahy Bambury - Criminal Law Solicitors","contact":"","phone":"+35318745800","email":"","address":"153 King St N, Smithfield, Dublin, D07 ND77","county":"Dublin","industry":"Professional Services","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n248","text":"⭐ 4.8/5 · 50 Google reviews · Found via: law firms Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3499439,"lng":-6.2751979,"website":"https://www.fahybambury.com/","source":"apify"},{"id":"gp-249","company":"McKenna & Co Solicitors","contact":"","phone":"+35314854563","email":"","address":"115 Baggot Street Lower, Dublin 2, D02 FN88","county":"Dublin","industry":"Professional Services","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n249","text":"⭐ 5/5 · 323 Google reviews · Found via: law firms Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.336854,"lng":-6.249783,"website":"https://www.propertysolicitorsdublin.ie/","source":"apify"},{"id":"gp-253","company":"Simpletax Accountants","contact":"","phone":"+35315826490","email":"","address":"40/41 Dame St, Dublin, D02 VA44","county":"Dublin","industry":"Professional Services","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n253","text":"⭐ 4.9/5 · 75 Google reviews · Found via: tax consultants Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3440904,"lng":-6.2626551,"website":"https://simpletax.ie/","source":"apify"},{"id":"gp-265","company":"Smith & Butler Estates","contact":"","phone":"+35318665600","email":"","address":"238 Swords Rd, Santry, Dublin, D09 H9N3","county":"Dublin","industry":"Other","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n265","text":"⭐ 4.7/5 · 490 Google reviews · Found via: tax consultants Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3886693,"lng":-6.2454134,"website":"http://www.smithbutlerestates.com/","source":"apify"},{"id":"gp-267","company":"MortgageLine","contact":"","phone":"+35317079880","email":"","address":"25-27 Drumcondra Rd Upper, Drumcondra, Dublin 9, D09 Y880","county":"Dublin","industry":"Finance","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n267","text":"⭐ 4.9/5 · 983 Google reviews · Found via: insurance brokers Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3722939,"lng":-6.2528322,"website":"https://mortgageline.ie/","source":"apify"},{"id":"gp-271","company":"FM Downes LTD","contact":"","phone":"+35318556666","email":"","address":"Kandoy House, 2 Fairview Strand, Clontarf West, Dublin 3, D03 R8P3","county":"Dublin","industry":"Finance","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n271","text":"⭐ 4.9/5 · 112 Google reviews · Found via: insurance brokers Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3625102,"lng":-6.2375753,"website":"http://www.fmdownes.com/","source":"apify"},{"id":"gp-275","company":"ISM Recruitment","contact":"","phone":"+35318912330","email":"","address":"Block 5 Airvista Office Park, Swords Rd, Whitehall, Dublin 9, D09 A3X2","county":"Dublin","industry":"Other","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n275","text":"⭐ 4.8/5 · 118 Google reviews · Found via: recruitment agencies Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3954665,"lng":-6.2465134,"website":"https://www.ism.ie/ism-recruitment","source":"apify"},{"id":"gp-276","company":"Strive Search","contact":"","phone":"+353857316009","email":"","address":"Talent Garden, Charlemont Avenue, Glasnevin, Dublin, D11 YNR2","county":"Dublin","industry":"Other","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n276","text":"⭐ 5/5 · 54 Google reviews · Found via: recruitment agencies Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3774574,"lng":-6.2702505,"website":"https://strivesearch.ie/","source":"apify"},{"id":"gp-286","company":"IT.ie Managed IT Support","contact":"","phone":"+35318424114","email":"","address":"Finglas Business Centre, Unit 35, Jamestown Rd, Finglas North, Dublin, D11 EP86","county":"Dublin","industry":"Technology","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n286","text":"⭐ 5/5 · 57 Google reviews · Found via: software companies Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3971401,"lng":-6.2954051,"website":"https://it.ie/","source":"apify"},{"id":"gp-288","company":"DCU:Innovate Hub","contact":"","phone":"+35319072760","email":"","address":"DCU Innovate Hub, Old Finglas Rd, Glasnevin, Dublin, D11 KXN4","county":"Dublin","industry":"Technology","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n288","text":"⭐ 4.7/5 · 57 Google reviews · Found via: software companies Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3763178,"lng":-6.2706698,"website":"https://dcuinnovate.com/","source":"apify"},{"id":"gp-291","company":"Webjuice - SEO Dublin","contact":"","phone":"+353858802213","email":"","address":"3 Hamilton Way, Castleknock, Dublin, D15 YPC0","county":"Dublin","industry":"Professional Services","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n291","text":"⭐ 4.8/5 · 60 Google reviews · Found via: software companies Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3761528,"lng":-6.3123309,"website":"https://webjuice.ie/","source":"apify"},{"id":"gp-298","company":"CloudAccounts","contact":"","phone":"+35312338100","email":"","address":"13 Adelaide Rd, Saint Kevin's, Dublin 2, D02 P950","county":"Dublin","industry":"Professional Services","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n298","text":"⭐ 5/5 · 225 Google reviews · Found via: accountants Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3326152,"lng":-6.2596233,"website":"http://cloudaccounts.ie/","source":"apify"},{"id":"gp-314","company":"Lalloo Solicitors","contact":"","phone":"+35316641800","email":"","address":"Alexandra House, 3 Ballsbridge Park, Dublin 4, D04 C7H2","county":"Dublin","industry":"Professional Services","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n314","text":"⭐ 5/5 · 64 Google reviews · Found via: solicitors Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3305256,"lng":-6.2281198,"website":"http://www.injured.ie/","source":"apify"},{"id":"gp-315","company":"Setanta Solicitors","contact":"","phone":"+35312150168","email":"","address":"39/40 Mount Street Upper, Dublin, D02 X7H6","county":"Dublin","industry":"Professional Services","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n315","text":"⭐ 4.8/5 · 124 Google reviews · Found via: solicitors Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.337207,"lng":-6.2452274,"website":"https://setantasolicitors.ie/","source":"apify"},{"id":"gp-326","company":"Hussey Fraser Solicitors","contact":"","phone":"+35316681966","email":"","address":"17 Northumberland Rd, Ballsbridge, Dublin 4, D04 KF76","county":"Dublin","industry":"Professional Services","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n326","text":"⭐ 4.9/5 · 622 Google reviews · Found via: law firms Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.336413,"lng":-6.2389344,"website":"https://www.injury-solicitors.ie/","source":"apify"},{"id":"gp-348","company":"Quigley Financial Brokers Dublin","contact":"","phone":"+353872371374","email":"","address":"Alexandra House, 3 Ballsbridge Park, Merrion Rd, Ballsbridge, Dublin 4, D04 C7H2","county":"Dublin","industry":"Finance","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n348","text":"⭐ 5/5 · 67 Google reviews · Found via: financial advisors Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3305256,"lng":-6.2281198,"website":"http://www.quigley.ie/","source":"apify"},{"id":"gp-350","company":"DNG Financial Services","contact":"","phone":"+35319059000","email":"","address":"Milltown House, Mount St Annes, Dublin 6, D06 Y822","county":"Dublin","industry":"Professional Services","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n350","text":"⭐ 5/5 · 145 Google reviews · Found via: financial advisors Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3131349,"lng":-6.2483422,"website":"https://www.dngfs.ie/","source":"apify"},{"id":"gp-356","company":"MMPI Group","contact":"","phone":"+35316688322","email":"","address":"101 Morehampton Rd, Donnybrook, Dublin, D04 T0C2","county":"Dublin","industry":"Professional Services","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n356","text":"⭐ 5/5 · 261 Google reviews · Found via: financial advisors Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3240327,"lng":-6.2399026,"website":"http://mmpi.ie/","source":"apify"},{"id":"gp-442","company":"Switcheroo Mortgages","contact":"","phone":"+35316855568","email":"","address":"47 Ranelagh Rd, Ranelagh, Dublin 6, D06 C2P3","county":"Dublin","industry":"Finance","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n442","text":"⭐ 4.8/5 · 60 Google reviews · Found via: financial advisors Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3269368,"lng":-6.2567911,"website":"https://switcheroo.ie/","source":"apify"},{"id":"gp-456","company":"bonkers.ie","contact":"","phone":"+35312560500","email":"","address":"Third Floor, The, Nutley Ln, Dublin 4, D04 T4A4","county":"Dublin","industry":"Finance","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n456","text":"⭐ 4.8/5 · 550 Google reviews · Found via: insurance brokers Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3186561,"lng":-6.2134758,"website":"https://www.bonkers.ie/","source":"apify"},{"id":"gp-459","company":"Business Utility Broker","contact":"","phone":"+353861973828","email":"","address":"21 Richmond St S, Saint Kevin's, Dublin 2, D02 WF99","county":"Dublin","industry":"Professional Services","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n459","text":"⭐ 5/5 · 160 Google reviews · Found via: insurance brokers Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3311811,"lng":-6.2643313,"website":"http://businessutilitybroker.ie/","source":"apify"},{"id":"gp-460","company":"Principle HR","contact":"","phone":"+35316767166","email":"","address":"8 Leeson Cl, Dublin, D02 KC98","county":"Dublin","industry":"Other","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n460","text":"⭐ 4.9/5 · 131 Google reviews · Found via: recruitment agencies Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3333285,"lng":-6.2537215,"website":"http://www.principlehr.com/","source":"apify"},{"id":"gp-461","company":"IT Search","contact":"","phone":"+35315079276","email":"","address":"13 Lad Ln, Dublin 2, D02 T668","county":"Dublin","industry":"Professional Services","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n461","text":"⭐ 5/5 · 232 Google reviews · Found via: recruitment agencies Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3344257,"lng":-6.2503262,"website":"http://itsearch.ie/","source":"apify"},{"id":"gp-462","company":"A+F Recruitment","contact":"","phone":"+35315079260","email":"","address":"13 Lad Ln, Dublin 2, D02 T668","county":"Dublin","industry":"Other","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n462","text":"⭐ 4.9/5 · 127 Google reviews · Found via: recruitment agencies Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3344257,"lng":-6.2503262,"website":"http://afrecruitment.ie/","source":"apify"},{"id":"gp-463","company":"Search Talent","contact":"","phone":"+35319639305","email":"","address":"43 Fitzwilliam Pl, Dublin, D02 FY81","county":"Dublin","industry":"Other","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n463","text":"⭐ 4.9/5 · 112 Google reviews · Found via: recruitment agencies Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3339383,"lng":-6.2522255,"website":"http://www.searchtalent.ie/","source":"apify"},{"id":"gp-464","company":"HR Search","contact":"","phone":"+35315079262","email":"","address":"13 Lad Ln, Dublin 2, D02 T668","county":"Dublin","industry":"Professional Services","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n464","text":"⭐ 5/5 · 91 Google reviews · Found via: recruitment agencies Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3344257,"lng":-6.2503262,"website":"http://hrsearch.ie/","source":"apify"},{"id":"gp-473","company":"FCR Media","contact":"","phone":"+35315133176","email":"","address":"Alexandra House, 3 Ballsbridge Park, Ballsbridge, Dublin, D04 C7H2","county":"Dublin","industry":"Retail","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n473","text":"⭐ 4.7/5 · 208 Google reviews · Found via: marketing agencies Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3305256,"lng":-6.2281198,"website":"https://fcrmedia.ie/","source":"apify"},{"id":"gp-480","company":"Sonas Technical","contact":"","phone":"+35314433917","email":"","address":"13 Adelaide Rd, Saint Kevin's, Dublin 2, D02 P950","county":"Dublin","industry":"Other","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n480","text":"⭐ 4.9/5 · 176 Google reviews · Found via: recruitment agencies Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.332598,"lng":-6.2596234,"website":"http://www.sonastechnical.com/","source":"apify"},{"id":"gp-522","company":"Workday Dublin","contact":"","phone":"+35312419900","email":"","address":"Building, 152 Kings, 152-155 Church St, Smithfield, Dublin 7, D07 A0TN","county":"Dublin","industry":"Technology","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n522","text":"⭐ 4.7/5 · 321 Google reviews · Found via: software companies Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3477872,"lng":-6.2750163,"website":"https://www.workday.com/en-gb/homepage.html","source":"apify"},{"id":"gp-524","company":"Phorest Salon Software","contact":"","phone":"+35318747800","email":"","address":"Anglesea Mills, 9 Anglesea Row, North City, Dublin 7, D07 K7KF","county":"Dublin","industry":"Technology","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n524","text":"⭐ 4.7/5 · 174 Google reviews · Found via: software companies Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3488646,"lng":-6.2694379,"website":"https://www.phorest.com/","source":"apify"},{"id":"gp-537","company":"Abbott Solicitors LLP","contact":"","phone":"+353852628858","email":"","address":"Bankhouse Business Centre, 331 S Circular Rd, Dublin 8","county":"Dublin","industry":"Professional Services","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n537","text":"⭐ 4.9/5 · 190 Google reviews · Found via: law firms Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3336233,"lng":-6.2916872,"website":"http://abbottsolicitors.net/","source":"apify"},{"id":"gp-547","company":"Shea Cullen Solicitors","contact":"","phone":"+35316040033","email":"","address":"Park Chambers, 13 St Stephen's Green, Dublin 2, D02 A364","county":"Dublin","industry":"Professional Services","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n547","text":"⭐ 4.9/5 · 221 Google reviews · Found via: law firms Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3396454,"lng":-6.258944,"website":"http://cullensolicitors.ie/","source":"apify"},{"id":"gp-429","company":"Darwin Hawkins","contact":"","phone":"+35315294200","email":"","address":"41 Leeson Street Lower, Saint Kevin's, Dublin 2, D02 R968","county":"Dublin","industry":"Other","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n429","text":"⭐ 4.9/5 · 122 Google reviews · Found via: audit firms Dublin","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3332276,"lng":-6.2542191,"website":"http://www.darwinhawkins.com/","source":"apify"},{"id":"gp-97","company":"Dublin Safety Training","contact":"","phone":"+35316120679","email":"","address":"Unit 55, Park West Enterprise Centre, Cherry Orchard, Park West, Co. Dublin, D12 XN22","county":"Dublin","industry":"Healthcare","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n97","text":"⭐ 4.9/5 · 139 Google reviews","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.334188,"lng":-6.3677814,"website":"http://www.dublinsafetytraining.ie/","source":"apify"},{"id":"gp-111","company":"Greenday Drainage Service","contact":"","phone":"+3531800222332","email":"","address":"","county":"Other","industry":"Construction","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n111","text":"⭐ 4.7/5 · 130 Google reviews","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3243201,"lng":-6.2457041,"website":"https://www.greenday.ie/","source":"apify"},{"id":"gp-112","company":"Cloud Picker Coffee Roasters","contact":"","phone":"+35314557582","email":"","address":"Unit 9 Stannaway Drive, Stannaway Rd, Kimmage, Dublin 12, D12 VH27","county":"Dublin","industry":"Other","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n112","text":"⭐ 4.7/5 · 88 Google reviews","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.3178153,"lng":-6.3013109,"website":"http://www.cloudpickercoffee.ie/","source":"apify"},{"id":"gp-156","company":"Conspect Engineering & Dublin Surveys","contact":"","phone":"+353892488004","email":"","address":"17 Dollymount Park, Clontarf East, Dublin 3, D03 FK83","county":"Dublin","industry":"Professional Services","employees":0,"annualRevenue":0,"stage":"Prospect","priority":"High","notes":[{"id":"n156","text":"⭐ 4.8/5 · 89 Google reviews","date":"2026-05-06","author":"Lead Import"}],"activities":[],"createdAt":"2026-05-06","lat":53.364287,"lng":-6.1787323,"website":"http://www.conspect.ie/","source":"apify"}];
+
+const fmt=n=>!n?"N/A":n>=1e6?`€${(n/1e6).toFixed(1)}M`:n>=1e3?`€${(n/1e3).toFixed(0)}K`:`€${n}`;
+const tod=()=>new Date().toISOString().split("T")[0];
+const STAGE_PROB={Prospect:5,Contacted:15,Qualified:30,Proposal:50,Negotiation:75,"Closed Won":100,"Closed Lost":0};
+const daysSince=d=>d?Math.floor((Date.now()-new Date(d).getTime())/86400000):null;
+const lastActDate=l=>{if(!l.activities||!l.activities.length)return l.createdAt||null;return[...l.activities].map(a=>a.date).sort().reverse()[0];};
+const stalenessColor=days=>days===null?"#475569":days<3?"#4ade80":days<7?"#fbbf24":days<14?"#f59e0b":"#ef4444";
+const stalenessLabel=days=>days===null?"new":days===0?"today":days===1?"yesterday":`${days}d ago`;
+
+const FIELD_MAP={
+  company:["company","businessname","business","name","companyname","accountname","organisation","organization","biz"],
+  contact:["contact","contactname","person","fullname","firstname","lastname","decisionmaker","owner","primarycontact"],
+  phone:["phone","telephone","tel","mobile","phonenumber","mobilenumber","contactnumber"],
+  email:["email","emailaddress","emailadd"],
+  address:["address","streetaddress","street","location","fulladdress","addr"],
+  county:["county","region","state","area","province"],
+  industry:["industry","sector","category","businesstype","type"],
+  employees:["employees","staff","staffcount","headcount","size","employeecount","numberofemployees","employeenumber"],
+  annualRevenue:["annualrevenue","revenue","turnover","sales","yearlyrevenue","income","arr"],
+  stage:["stage","status","pipelinestage","dealstage"],
+  priority:["priority","importance","urgency"],
+  website:["website","web","url","domain"],
+  notes:["notes","note","comment","comments","description","remarks"],
+};
+const normKey=k=>String(k||"").toLowerCase().replace(/[\s_\-./]/g,"");
+const mapRow=row=>{
+  const out={};const lc={};
+  Object.keys(row||{}).forEach(k=>{lc[normKey(k)]=row[k];});
+  for(const[target,variants]of Object.entries(FIELD_MAP)){
+    for(const v of variants){if(lc[normKey(v)]!==undefined&&lc[normKey(v)]!==null&&lc[normKey(v)]!==""){out[target]=lc[normKey(v)];break;}}
+  }
+  return out;
+};
+const parseLeadsFromArray=(arr,defaults={})=>{
+  if(!Array.isArray(arr))return[];
+  return arr.map(r=>{
+    const m=mapRow(r);if(!m.company)return null;
+    const stage=STAGES.includes(m.stage)?m.stage:(defaults.stage||"Prospect");
+    const priority=PRIS.includes(m.priority)?m.priority:(defaults.priority||"Medium");
+    const county=CNTS.includes(m.county)?m.county:(m.county||"Other");
+    const industry=INDS.includes(m.industry)?m.industry:(m.industry||"Other");
+    return{id:Date.now()+"-"+Math.random().toString(36).slice(2,9),company:String(m.company).trim(),contact:String(m.contact||"").trim(),phone:String(m.phone||"").trim(),email:String(m.email||"").trim(),address:String(m.address||"").trim(),county,industry,stage,priority,employees:parseInt(m.employees)||0,annualRevenue:parseInt(String(m.annualRevenue||"").replace(/[^\d]/g,""))||0,website:String(m.website||"").trim(),notes:m.notes?[{id:Date.now()+"n",text:String(m.notes),date:tod(),author:"Import"}]:[],activities:[],createdAt:tod(),lat:null,lng:null,source:"import"};
+  }).filter(Boolean);
+};
+const parseTSV=text=>{
+  const lines=text.trim().split(/\r?\n/);if(lines.length<2)return[];
+  const headers=lines[0].split("\t").map(h=>h.trim());
+  return lines.slice(1).map(line=>{const vals=line.split("\t");const obj={};headers.forEach((h,i)=>{obj[h]=vals[i]||"";});return obj;});
+};
+const EF={company:"",contact:"",phone:"",email:"",address:"",county:"Dublin",industry:"Technology",employees:"",annualRevenue:"",stage:"Prospect",priority:"Medium"};
+const EP={name:"",email:"",phone:"",title:"Business Development Manager",company:"eir Business"};
+const stg=async k=>{try{if(window.storage){const r=await window.storage.get(k);return r?r.value:null;}return localStorage.getItem(k);}catch{try{return localStorage.getItem(k);}catch{return null;}}};
+const sts=async(k,v)=>{try{if(window.storage){await window.storage.set(k,v);return;}localStorage.setItem(k,v);}catch{try{localStorage.setItem(k,v);}catch{}}};
+const std=async k=>{try{if(window.storage){await window.storage.delete(k);return;}localStorage.removeItem(k);}catch{try{localStorage.removeItem(k);}catch{}}};
+
+const BG="#f8fafc",SUR="#ffffff",BDR="#e5e7eb";
+// Light theme — text colour tokens for consistency
+const T1="#0f172a",T2="#475569",T3="#94a3b8";
+const S={
+  inp:{background:"#f8fafc",border:`1px solid ${BDR}`,borderRadius:8,padding:"8px 12px",color:T1,fontSize:13,width:"100%",boxSizing:"border-box",outline:"none",fontWeight:500},
+  sel:{background:"#f8fafc",border:`1px solid ${BDR}`,borderRadius:8,padding:"8px 12px",color:T1,fontSize:13,cursor:"pointer",outline:"none",fontWeight:500},
+  lbl:{fontSize:11,color:T2,fontWeight:600,letterSpacing:.4,textTransform:"uppercase",display:"block",marginBottom:5},
+  card:{background:SUR,border:`1px solid ${BDR}`,borderRadius:12,padding:"16px 20px",boxShadow:"0 1px 2px rgba(15,23,42,0.04)"},
+  g:{background:"#10b981",color:"#0f172a",border:"none",borderRadius:8,padding:"8px 16px",fontWeight:600,cursor:"pointer",fontSize:13,boxShadow:"0 1px 2px rgba(16,185,129,0.2)"},
+  p:{background:"#6366f1",color:"#0f172a",border:"none",borderRadius:8,padding:"8px 16px",fontWeight:600,cursor:"pointer",fontSize:13,boxShadow:"0 1px 2px rgba(99,102,241,0.2)"},
+  x:{background:"#ffffff",color:"#334155",border:`1px solid #cbd5e1`,borderRadius:8,padding:"8px 16px",cursor:"pointer",fontSize:13,fontWeight:600},
+  r:{background:"#fef2f2",color:"#dc2626",border:"1px solid #fecaca",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:500},
+  w:{background:"#fef3c7",color:"#b45309",border:"1px solid #fde68a",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:500},
+  ai:{background:"#ede9fe",color:"#6d28d9",border:"1px solid #ddd6fe",borderRadius:8,padding:"8px 16px",cursor:"pointer",fontSize:13,fontWeight:600},
+};
+
+// ─── FIXED: Tag now has a coloured border so it's always visible on any background ───
+function Av({name,sz=36}){const i=(name||"?").split(" ").map(w=>w[0]).slice(0,2).join("");const col=["#4ade80","#38bdf8","#a78bfa","#f472b6","#fbbf24","#34d399"][(name||"A").charCodeAt(0)%6];return <div style={{width:sz,height:sz,borderRadius:"50%",background:col+"22",border:`1.5px solid ${col}`,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:sz*.33,color:col,flexShrink:0}}>{i}</div>;}
+function Tag({bg,col,children}){
+  return <span style={{
+    background:bg||"rgba(255,255,255,0.04)",
+    color:col,
+    padding:"2px 10px",
+    borderRadius:20,
+    fontSize:11,
+    fontWeight:600,
+    whiteSpace:"nowrap",
+    border:`1.5px solid ${col}55`,
+    letterSpacing:0.2,
+    display:"inline-flex",
+    alignItems:"center",
+    lineHeight:1.6,
+  }}>{children}</span>;
+}
+function Dot({on,col="#4ade80"}){return <div style={{width:8,height:8,borderRadius:"50%",background:on?col:"#f59e0b",flexShrink:0}}/>;}
+function Modal({onClose,children,w=480}){return(<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.82)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:99}} onClick={onClose}><div style={{background:SUR,border:`1px solid ${BDR}`,borderRadius:16,padding:26,width:w,maxHeight:"90vh",overflow:"auto"}} onClick={e=>e.stopPropagation()}>{children}</div></div>);}
+
+// ─── Checkbox component ────────────────────────────────────────────────────────
+function Checkbox({checked,onChange,style={}}){
+  return(
+    <div
+      onClick={e=>{e.stopPropagation();onChange(!checked);}}
+      style={{width:18,height:18,borderRadius:4,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",transition:"all .15s",background:checked?"#4ade80":"transparent",border:`1.5px solid ${checked?"#4ade80":"#334155"}`,...style}}
+    >
+      {checked&&<span style={{fontSize:11,color:"#ffffff",fontWeight:800,lineHeight:1}}>✓</span>}
+    </div>
+  );
+}
+
+function DetailPanel({lead,onClose,upd,geoOne,mapKey,leads,setELead,setEView,setMapPin,setTab}){
+  const [noteT,setNoteT]=useState("");
+  const [actT,setActT]=useState("");
+  const [actType,setActType]=useState("call");
+  if(!lead)return null;
+  const addNote=()=>{if(!noteT.trim())return;const l=leads.find(x=>x.id===lead.id);if(!l)return;upd(lead.id,{notes:[...(l.notes||[]),{id:Date.now()+"",text:noteT,date:tod(),author:"You"}]});setNoteT("");};
+  const logAct=()=>{if(!actT.trim())return;const l=leads.find(x=>x.id===lead.id);if(!l)return;upd(lead.id,{activities:[...(l.activities||[]),{id:Date.now()+"",type:actType,note:actT,date:tod()}]});setActT("");};
+  return(
+    <div style={{width:380,background:SUR,borderLeft:`1px solid ${BDR}`,display:"flex",flexDirection:"column",overflow:"hidden",flexShrink:0}}>
+      <div style={{background:"#ffffff",borderBottom:`1px solid ${BDR}`,padding:"12px 15px",display:"flex",alignItems:"center",gap:10}}>
+        <Av name={lead.company} sz={34}/>
+        <div style={{flex:1,minWidth:0}}><div style={{fontWeight:700,color:"#0f172a",fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{lead.company}</div><div style={{fontSize:11,color:"#64748b"}}>{lead.contact||"No contact yet"}</div></div>
+        <span onClick={()=>{setELead(lead);setTab("email");setEView("compose");}} style={{cursor:"pointer",fontSize:15,padding:3}}>✉️</span>
+        {lead.lat&&<span onClick={()=>{setMapPin(lead);setTab("map");}} style={{cursor:"pointer",fontSize:15,padding:3}}>📍</span>}
+        <button onClick={onClose} style={{background:"none",border:"none",color:"#64748b",cursor:"pointer",fontSize:18}}>×</button>
+      </div>
+      <div style={{flex:1,overflow:"auto",padding:15}}>
+        <div style={{marginBottom:14}}>
+          <label style={S.lbl}>Stage</label>
+          <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+            {STAGES.map(s=><span key={s} onClick={()=>upd(lead.id,{stage:s})} style={{padding:"3px 9px",borderRadius:20,fontSize:11,fontWeight:600,cursor:"pointer",background:lead.stage===s?SB[s]:"#1a1f2e",color:lead.stage===s?SC[s]:"#475569",border:`1.5px solid ${lead.stage===s?SC[s]:BDR}`}}>{s}</span>)}
+          </div>
+        </div>
+        <div style={{background:BG,border:`1px solid ${BDR}`,borderRadius:10,padding:10,marginBottom:12}}>
+          {[["📧","Email",lead.email],["📞","Phone",lead.phone],["🌐","Website",lead.website],["📍","Address",lead.address],["🏭","Industry",lead.industry],["👥","Staff",lead.employees],["💰","Revenue",fmt(lead.annualRevenue)],["🗺️","Pin",lead.lat?`${lead.lat.toFixed(4)}, ${lead.lng.toFixed(4)}`:"Not geocoded"]].map(([ic,lb,v])=>(
+            <div key={lb} style={{display:"flex",gap:8,padding:"4px 0",borderBottom:`1px solid ${BDR}`}}>
+              <span style={{fontSize:11,color:"#475569",width:70,flexShrink:0}}>{ic} {lb}</span>
+              <span style={{fontSize:11,color:lb==="Pin"&&!lead.lat?"#f59e0b":"#94a3b8",wordBreak:"break-all"}}>{v||"—"}</span>
+            </div>
+          ))}
+          {!lead.lat&&lead.address&&mapKey&&<button style={{...S.w,width:"100%",marginTop:8}} onClick={()=>geoOne(lead)}>📍 Geocode this address</button>}
+        </div>
+        <div style={{marginBottom:12}}>
+          <label style={S.lbl}>Priority</label>
+          <div style={{display:"flex",gap:5}}>
+            {PRIS.map(p=><span key={p} onClick={()=>upd(lead.id,{priority:p})} style={{padding:"3px 9px",borderRadius:20,fontSize:11,fontWeight:600,cursor:"pointer",background:lead.priority===p?PCOL[p]+"22":"#1a1f2e",color:lead.priority===p?PCOL[p]:"#475569",border:`1.5px solid ${lead.priority===p?PCOL[p]:BDR}`}}>{p}</span>)}
+          </div>
+        </div>
+        <div style={{marginBottom:12}}>
+          <label style={S.lbl}>Log Activity</label>
+          <div style={{display:"flex",gap:5,marginBottom:7,flexWrap:"wrap"}}>
+            {ATYPES.map(t=><span key={t} onClick={()=>setActType(t)} style={{padding:"2px 8px",borderRadius:20,fontSize:11,cursor:"pointer",background:actType===t?"#1e3a5f":"#1a1f2e",color:actType===t?"#38bdf8":"#475569",border:`1.5px solid ${actType===t?"#38bdf8":BDR}`}}>{AICO[t]} {t}</span>)}
+          </div>
+          <div style={{display:"flex",gap:6}}>
+            <input style={{...S.inp,flex:1}} placeholder="What happened?" value={actT} onChange={e=>setActT(e.target.value)} onKeyDown={e=>e.key==="Enter"&&logAct()}/>
+            <button style={S.g} onClick={logAct}>Log</button>
+          </div>
+        </div>
+        {(lead.activities||[]).length>0&&(
+          <div style={{marginBottom:12}}>
+            <label style={S.lbl}>History</label>
+            {[...(lead.activities||[])].reverse().map(a=>(
+              <div key={a.id} style={{display:"flex",gap:8,padding:"5px 0",borderBottom:`1px solid ${BDR}`}}>
+                <span style={{fontSize:14}}>{AICO[a.type]||"📌"}</span>
+                <div><div style={{fontSize:11,color:"#64748b"}}>{a.note}</div><div style={{fontSize:10,color:"#475569",marginTop:1}}>{a.type} · {a.date}</div></div>
+              </div>
+            ))}
+          </div>
+        )}
+        {/* ── BUSINESS TYPE & COMPLIANCE CHECKLIST ── */}
+        <div style={{marginBottom:14,padding:"11px 13px",background:"#ffffff",border:`1px solid ${BDR}`,borderRadius:9}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:9}}>
+            <label style={{...S.lbl,marginBottom:0,color:"#0f172a"}}>🛡️ Business Type & Compliance</label>
+            {lead.businessType&&(()=>{const s=complianceStatus(lead);if(!s)return null;return(<span style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:9,background:s.isReady?"#dcfce7":s.pct>50?"#fef3c7":"#fee2e2",color:s.isReady?"#15803d":s.pct>50?"#92400e":"#991b1b"}}>{s.requiredDone}/{s.requiredTotal} {s.isReady?"✓ Ready":"required"}</span>);})()}
+          </div>
+          {/* Business type selector — radio-style cards */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,marginBottom:lead.businessType?11:0}}>
+            {Object.entries(BUSINESS_TYPES).map(([key,def])=>{
+              const isActive=lead.businessType===key;
+              return(
+                <div key={key} onClick={()=>{if(isActive){if(confirm("Clear business type and checklist?"))upd(lead.id,{businessType:null,checklist:{}});}else{upd(lead.id,{businessType:key,checklist:lead.checklist||{}});}}} style={{padding:"8px 10px",borderRadius:7,border:`2px solid ${isActive?def.color:"#e5e7eb"}`,background:isActive?def.bgLight:"#ffffff",cursor:"pointer",textAlign:"left"}}>
+                  <div style={{fontSize:18,marginBottom:2}}>{def.icon}</div>
+                  <div style={{fontSize:11,fontWeight:700,color:isActive?def.color:"#0f172a",lineHeight:1.2,marginBottom:2}}>{def.label}</div>
+                  <div style={{fontSize:9,color:isActive?def.color:"#64748b",lineHeight:1.3}}>{def.description}</div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Checklist — shown only when a business type is set */}
+          {lead.businessType&&BUSINESS_TYPES[lead.businessType]&&(()=>{
+            const def=BUSINESS_TYPES[lead.businessType];
+            const checked=lead.checklist||{};
+            const toggle=(id)=>{const next={...checked,[id]:!checked[id]};upd(lead.id,{checklist:next});};
+            return(
+              <div style={{borderTop:`1px solid ${BDR}`,paddingTop:9}}>
+                {def.sections.map((sec,si)=>(
+                  <div key={si} style={{marginBottom:11}}>
+                    <div style={{fontSize:10,color:def.color,fontWeight:700,marginBottom:5,letterSpacing:.2}}>{sec.title}</div>
+                    {sec.items.map(item=>{
+                      const isChecked=!!checked[item.id];
+                      return(
+                        <div key={item.id} onClick={()=>toggle(item.id)} style={{display:"flex",alignItems:"flex-start",gap:7,padding:"5px 8px",background:isChecked?"#dcfce7":"#f8fafc",border:`1px solid ${isChecked?"#86efac":"#e5e7eb"}`,borderRadius:5,marginBottom:3,cursor:"pointer",fontSize:11}}>
+                          <div style={{width:14,height:14,borderRadius:3,background:isChecked?"#10b981":"#ffffff",border:`1.5px solid ${isChecked?"#10b981":"#cbd5e1"}`,flexShrink:0,marginTop:1,display:"flex",alignItems:"center",justifyContent:"center",color:"#ffffff",fontSize:9,fontWeight:700}}>{isChecked?"✓":""}</div>
+                          <div style={{flex:1,lineHeight:1.4}}>
+                            <span style={{color:isChecked?"#166534":"#0f172a"}}>
+                              {item.label}
+                              {item.required&&<span style={{color:"#dc2626",marginLeft:3,fontWeight:700}}>*</span>}
+                            </span>
+                            {item.links&&item.links.length>0&&(
+                              <div style={{marginTop:3,display:"flex",gap:6,flexWrap:"wrap"}}>
+                                {item.links.map((lnk,li)=>(
+                                  <a key={li} href={lnk.url} target="_blank" rel="noreferrer" onClick={e=>e.stopPropagation()} style={{fontSize:9,color:def.color,textDecoration:"none",background:def.bgLight,padding:"1px 6px",borderRadius:4,fontWeight:600}}>↗ {lnk.label}</a>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+                <div style={{fontSize:9,color:"#64748b",marginTop:7,paddingTop:7,borderTop:`1px solid ${BDR}`}}><span style={{color:"#dc2626",fontWeight:700}}>*</span> required for submission</div>
+              </div>
+            );
+          })()}
+        </div>
+
+        {/* ── AVAILABLE SERVICES — what infrastructure / products this address can get ── */}
+        <div style={{marginBottom:14,padding:"11px 13px",background:"#ffffff",border:`1px solid ${BDR}`,borderRadius:9}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:9}}>
+            <label style={{...S.lbl,marginBottom:0,color:"#0f172a"}}>📡 Available Services</label>
+            <span style={{fontSize:9,color:"#64748b",fontStyle:"italic"}}>What can we sell here?</span>
+          </div>
+          <div style={{fontSize:10,color:"#64748b",marginBottom:8,lineHeight:1.5}}>Click to mark which products are available at this address (qualification). Different from "Products Sold" below.</div>
+          {PRODUCT_CATEGORIES.map(cat=>(
+            <div key={cat} style={{marginBottom:7}}>
+              <div style={{fontSize:9,color:"#475569",fontWeight:700,letterSpacing:.3,marginBottom:3}}>{cat.toUpperCase()}</div>
+              <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+                {PRODUCT_LIST.filter(p=>PRODUCTS[p].category===cat).map(p=>{
+                  const def=PRODUCTS[p];
+                  const isAvail=(lead.availability||[]).includes(p);
+                  return(
+                    <button key={p} onClick={()=>{const cur=lead.availability||[];const next=isAvail?cur.filter(x=>x!==p):[...cur,p];upd(lead.id,{availability:next});}} style={{padding:"5px 10px",borderRadius:7,border:`${isAvail?"2px":"1px dashed "}${def.color}${isAvail?"":"66"}`,background:isAvail?def.color+"22":"#ffffff",color:isAvail?def.color:"#64748b",fontSize:11,fontWeight:600,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:4}} title={def.description}>
+                      <span style={{fontSize:13}}>{def.icon}</span>{p}{isAvail?" ✓":""}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+          {(lead.availability||[]).length>0&&(
+            <div style={{marginTop:8,padding:"7px 10px",background:"#ecfdf5",border:"1px solid #a7f3d0",borderRadius:6,fontSize:11,color:"#065f46"}}>
+              <strong>Qualified for:</strong> {(lead.availability||[]).map(p=>PRODUCTS[p]?.icon+" "+p).join(" · ")}
+            </div>
+          )}
+        </div>
+
+        {/* ── PRODUCTS — eir Business sold items ── */}
+        <div style={{marginBottom:14,padding:"11px 13px",background:"#f8fafc",border:`1px solid ${BDR}`,borderRadius:9}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+            <label style={{...S.lbl,marginBottom:0}}>📦 Products Sold</label>
+            <span style={{fontSize:10,color:"#64748b"}}>{(lead.products||[]).length} item{(lead.products||[]).length===1?"":"s"}</span>
+          </div>
+          {/* List of current products */}
+          {(lead.products||[]).length===0?(
+            <div style={{fontSize:10,color:"#64748b",textAlign:"center",padding:"7px 0",fontStyle:"italic"}}>No products added yet — pick one below</div>
+          ):(
+            <div style={{marginBottom:8}}>
+              {(lead.products||[]).map((p,i)=>{
+                const def=PRODUCTS[p.type]||{color:"#64748b",icon:"📦"};
+                const isProcessed=p.status==="processed";
+                return(
+                  <div key={i} style={{display:"flex",alignItems:"center",gap:6,padding:"5px 8px",background:"#ffffff",border:`1px solid ${BDR}`,borderRadius:6,marginBottom:4,fontSize:11}}>
+                    <span style={{fontSize:13}}>{def.icon}</span>
+                    <span style={{flex:1,fontWeight:600,color:def.color}}>{p.type}</span>
+                    <input type="number" min="1" value={p.quantity||1} onChange={e=>{const next=[...(lead.products||[])];next[i]={...next[i],quantity:parseInt(e.target.value)||1};upd(lead.id,{products:next});}} style={{width:46,padding:"2px 5px",border:`1px solid ${BDR}`,borderRadius:4,fontSize:11,textAlign:"center",background:"#ffffff",color:"#0f172a"}} title="Quantity"/>
+                    <select value={p.status||"pending"} onChange={e=>{const next=[...(lead.products||[])];next[i]={...next[i],status:e.target.value,processedDate:e.target.value==="processed"?(next[i].processedDate||tod()):next[i].processedDate};upd(lead.id,{products:next});}} style={{padding:"2px 6px",border:`1px solid ${BDR}`,borderRadius:4,fontSize:10,background:isProcessed?"#dcfce7":"#fef3c7",color:isProcessed?"#15803d":"#92400e",fontWeight:600,cursor:"pointer"}}>
+                      <option value="pending">Pending</option>
+                      <option value="processed">Processed</option>
+                      <option value="cancelled">Cancelled</option>
+                    </select>
+                    {isProcessed&&(<input type="date" value={p.processedDate||tod()} onChange={e=>{const next=[...(lead.products||[])];next[i]={...next[i],processedDate:e.target.value};upd(lead.id,{products:next});}} style={{padding:"2px 5px",border:`1px solid ${BDR}`,borderRadius:4,fontSize:10,background:"#ffffff",color:"#0f172a"}}/>)}
+                    <button onClick={()=>{if(confirm(`Remove ${p.type}?`)){const next=(lead.products||[]).filter((_,j)=>j!==i);upd(lead.id,{products:next});}}} style={{background:"none",border:"none",color:"#dc2626",cursor:"pointer",fontSize:13,padding:0,width:18}} title="Remove">×</button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {/* Quick-add buttons grouped by category */}
+          {PRODUCT_CATEGORIES.map(cat=>(
+            <div key={cat} style={{marginBottom:5}}>
+              <div style={{fontSize:9,color:"#64748b",fontWeight:700,letterSpacing:.3,marginBottom:3}}>{cat.toUpperCase()}</div>
+              <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+                {PRODUCT_LIST.filter(p=>PRODUCTS[p].category===cat).map(p=>{
+                  const def=PRODUCTS[p];
+                  return(
+                    <button key={p} onClick={()=>{const next=[...(lead.products||[]),{type:p,quantity:1,status:"pending"}];upd(lead.id,{products:next});}} style={{padding:"3px 9px",borderRadius:6,border:`1px solid ${def.color}44`,background:def.color+"15",color:def.color,fontSize:10,fontWeight:600,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:3}} title={def.description}>
+                      <span style={{fontSize:11}}>{def.icon}</span>+ {p}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{marginBottom:12}}>
+          <label style={S.lbl}>Notes</label>
+          <textarea style={{...S.inp,resize:"vertical",lineHeight:1.6,fontFamily:"inherit",minHeight:48,marginBottom:7}} value={noteT} onChange={e=>setNoteT(e.target.value)} placeholder="Add a note..."/>
+          <button style={{...S.x,width:"100%"}} onClick={addNote}>+ Save Note</button>
+          <div style={{marginTop:8}}>
+            {[...(lead.notes||[])].reverse().map(n=>(
+              <div key={n.id} style={{background:BG,border:`1px solid ${BDR}`,borderRadius:7,padding:"8px 10px",marginBottom:5}}>
+                <div style={{fontSize:11,color:"#cbd5e1",lineHeight:1.6}}>{n.text}</div>
+                <div style={{fontSize:10,color:"#475569",marginTop:3}}>{n.author} · {n.date}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function App(){
+  const [leads,setLeads]=useState(SAMPLE);
+  const [tab,setTab]=useState("dashboard");
+  // ── EDITABLE STAGE NAMES (display labels only — lead.stage stays as canonical key) ──
+  const [stageLabels,setStageLabels]=useState(()=>{const s=stg("ec-stage-labels");return(s&&typeof s==="object")?s:{};});
+  const saveStageLabels=useCallback(next=>{setStageLabels(next);sts("ec-stage-labels",JSON.stringify(next));},[]);
+  // Display helper — returns custom label if set, otherwise canonical name
+  const dispStage=(s)=>stageLabels[s]||s;
+  // ── DRAG STATE for Pipeline drag-and-drop ──
+  const [dragLeadId,setDragLeadId]=useState(null);
+  const [dragOverStage,setDragOverStage]=useState(null);
+  // ── EDITING STAGE NAME ──
+  const [editingStage,setEditingStage]=useState(null); // canonical stage key being renamed
+  const [editStageText,setEditStageText]=useState("");
+  // ── FOTS TARGETS — period selector + target visit count ──
+  const [targetPeriod,setTargetPeriod]=useState("month"); // today | week | month | quarter | custom
+  const [targetCustomFrom,setTargetCustomFrom]=useState("");
+  const [targetCustomTo,setTargetCustomTo]=useState("");
+  const [dailyTarget,setDailyTarget]=useState(()=>{const s=stg("ec-daily-target");return typeof s==="number"?s:1;}); // 1 broadband/day
+  const [workDays,setWorkDays]=useState(()=>{const s=stg("ec-work-days");return typeof s==="number"?s:20;}); // 20 work days/month
+  const targetVisits=dailyTarget*workDays; // monthly broadband target — derived
+  const saveDailyTarget=useCallback(n=>{setDailyTarget(n);sts("ec-daily-target",n);},[]);
+  const saveWorkDays=useCallback(n=>{setWorkDays(n);sts("ec-work-days",n);},[])
+  
+  const [selLead,setSelLead]=useState(null);
+  const [showAdd,setShowAdd]=useState(false);
+  const [form,setForm]=useState(EF);
+  const [flt,setFlt]=useState({stage:"",industry:"",county:"",search:"",category:"",subCategory:"",tags:[],product:"",availability:""});
+  const [searchInput,setSearchInput]=useState("");
+  const [page,setPage]=useState(1);
+  const PAGE_SIZE=50;
+
+  // Debounce search input → flt.search (200ms) for snappy typing
+  useEffect(()=>{
+    const t=setTimeout(()=>{setFlt(f=>({...f,search:searchInput}));setPage(1);},200);
+    return()=>clearTimeout(t);
+  },[searchInput]);
+
+  // Reset to page 1 when other filters change
+  useEffect(()=>{setPage(1);},[flt.stage,flt.industry,flt.county,flt.category,flt.subCategory]);
+  const [mapKey,setMapKey]=useState("");
+  const [mapKeyI,setMapKeyI]=useState("");
+  const [showMapM,setShowMapM]=useState(false);
+  const [geoMsg,setGeoMsg]=useState("");
+  const [eProf,setEProf]=useState(EP);
+  const [eProfI,setEProfI]=useState(EP);
+  const [showEmailM,setShowEmailM]=useState(false);
+  const [eLead,setELead]=useState(null);
+  const [eTmpl,setETmpl]=useState("cold");
+  const [eSubj,setESubj]=useState("");
+  const [eBody,setEBody]=useState("");
+  const [eGen,setEGen]=useState(false);
+  const [eSrch,setESrch]=useState("");
+  const [sent,setSent]=useState([]);
+  const [eView,setEView]=useState("compose");
+  const [mapCenter,setMapCenter]=useState({lat:53.35,lng:-7.8});
+  const [mapZoom,setMapZoom]=useState(7);
+  const [mapType,setMapType]=useState("roadmap");
+  const [mapPin,setMapPin]=useState(null);
+  const [mapImgErr,setMapImgErr]=useState("");
+  const [mapLoaded,setMapLoaded]=useState(false);
+  const [mapLoadErr,setMapLoadErr]=useState("");
+  const [mapEditLead,setMapEditLead]=useState(null);
+  // ── CUSTOM TAGS — user-defined tags that can override auto-categories ──
+  const [customTags,setCustomTags]=useState(()=>{const s=stg("ec-tags");return Array.isArray(s)?s:[];});
+  const saveCustomTags=useCallback(next=>{setCustomTags(next);sts("ec-tags",JSON.stringify(next));},[]);
+  const [showTagsModal,setShowTagsModal]=useState(false);
+  const [editTagsLead,setEditTagsLead]=useState(null);
+  const [newTagName,setNewTagName]=useState("");
+  const [newTagColor,setNewTagColor]=useState("#3b82f6");
+  // ── SAVED FILTERS — name + saved filter state ──
+  const [savedFilters,setSavedFilters]=useState(()=>{const s=stg("ec-saved-filters");return Array.isArray(s)?s:[];});
+  const saveSavedFilters=useCallback(next=>{setSavedFilters(next);sts("ec-saved-filters",JSON.stringify(next));},[]);
+  const mapDivRef=useRef(null);
+  const mapInstanceRef=useRef(null);
+  const markersRef=useRef([]);
+  const infoWindowRef=useRef(null);
+  const clusterRef=useRef(null);
+  // Map colour mode: "category" or "stage"
+  const [mapColorMode,setMapColorMode]=useState("category");
+  // Active category filters for the map (which categories to show)
+  const [mapCatFilter,setMapCatFilter]=useState(()=>new Set(Object.keys(CATEGORIES)));
+  const [mapStageFilter,setMapStageFilter]=useState(()=>new Set(STAGES));
+  const [mapLegendOpen,setMapLegendOpen]=useState(true);
+  const [apiStatus,setApiStatus]=useState({});
+
+  // Lead Generator state
+  const [gType,setGType]=useState(BIZ[0]);
+  const [gMaxResults,setGMaxResults]=useState(60);
+  const [gDeepSearch,setGDeepSearch]=useState(false);
+  const [gWideArea,setGWideArea]=useState(true);
+  const [gSearchProgress,setGSearchProgress]=useState({active:false,total:0,done:0,phase:""});
+  const [gLoc,setGLoc]=useState("Dublin");
+  const [gQuery,setGQuery]=useState("");
+  const [gResults,setGResults]=useState([]);
+  const [gSel,setGSel]=useState({});
+  const [gLoading,setGLoading]=useState(false);
+  const [gMsg,setGMsg]=useState("");
+  const [gImported,setGImported]=useState(0);
+  const [gNextToken,setGNextToken]=useState(null);
+  // ── per-place details cache {placeId: {phone, website, loading, done}} ──
+  const [gDetails,setGDetails]=useState({});
+  const [gFetchingAll,setGFetchingAll]=useState(false);
+  // ── per-place web research cache {placeId: {ownerName, email, emailConfidence, contactPerson, jobTitle, notes, loading, done}} ──
+  const [gWebInfo,setGWebInfo]=useState({});
+  const [gResearchingAll,setGResearchingAll]=useState(false);
+
+  // Pipeline
+  const [pSearch,setPSearch]=useState("");
+  const [pSort,setPSort]=useState("value");
+  const [pPriority,setPPriority]=useState("");
+
+  // Import modal
+  const [showImport,setShowImport]=useState(false);
+  const [impMethod,setImpMethod]=useState("file");
+  const [impPaste,setImpPaste]=useState("");
+  const [impPreview,setImpPreview]=useState([]);
+  const [impMsg,setImpMsg]=useState("");
+  const [impSkipDup,setImpSkipDup]=useState(true);
+  const [impDefStage,setImpDefStage]=useState("Prospect");
+  const [impDefPriority,setImpDefPriority]=useState("Medium");
+  const [impFileName,setImpFileName]=useState("");
+  const fileInputRef=useRef(null);
+
+  // ── NEW: bulk selection state ──────────────────────────────────────────────
+  const [bulkSel,setBulkSel]=useState(new Set());
+  const [bulkStageVal,setBulkStageVal]=useState("");
+  const [bulkPriVal,setBulkPriVal]=useState("");
+
+  useEffect(()=>{
+    Promise.all([stg("ec-leads"),stg("ec-data-version")]).then(([leadsData,ver])=>{
+      const DATA_VER="gplaces-bulk-v1";
+      if(ver===DATA_VER&&leadsData){setLeads(JSON.parse(leadsData));return;}
+      const existing=leadsData?JSON.parse(leadsData):[];
+      const existingNames=new Set(existing.map(l=>(l.company||"").toLowerCase().trim()));
+      const toAdd=SAMPLE.filter(l=>!existingNames.has(l.company.toLowerCase().trim()));
+      const merged=[...existing,...toAdd];
+      setLeads(merged);sts("ec-leads",JSON.stringify(merged));sts("ec-data-version",DATA_VER);
+    });
+    stg("ec-mapkey").then(v=>{if(v)setMapKey(v);});
+    stg("ec-ep").then(v=>{if(v)setEProf(JSON.parse(v));});
+    stg("ec-sent").then(v=>{if(v)setSent(JSON.parse(v));});
+  },[]);
+
+  // Clear bulk selection when filters change
+  useEffect(()=>{setBulkSel(new Set());},[flt]);
+
+  // Debounced save — updates state immediately, persists to storage after 500ms
+  // Critical for performance with 10k+ leads (avoids JSON.stringify of huge array on every edit)
+  const saveTimerRef=useRef(null);
+  const saveLeads=useCallback(l=>{
+    setLeads(l);
+    if(saveTimerRef.current)clearTimeout(saveTimerRef.current);
+    saveTimerRef.current=setTimeout(()=>{sts("ec-leads",JSON.stringify(l));},500);
+  },[]);
+  const saveSent=s=>{setSent(s);sts("ec-sent",JSON.stringify(s));};
+
+  // ── Lead mutations ─────────────────────────────────────────────────────────
+  const upd=(id,patch)=>{
+    const n=leads.map(l=>l.id===id?{...l,...patch}:l);
+    saveLeads(n);
+    if(selLead?.id===id)setSelLead(p=>({...p,...patch}));
+    if(mapPin?.id===id)setMapPin(p=>({...p,...patch}));
+    if(eLead?.id===id)setELead(p=>({...p,...patch}));
+  };
+  const delLead=id=>{saveLeads(leads.filter(l=>l.id!==id));setSelLead(null);};
+
+  // ── BULK SELECTION HANDLERS ────────────────────────────────────────────────
+  const toggleBulkSel=(id,e)=>{
+    if(e)e.stopPropagation();
+    setBulkSel(prev=>{const n=new Set(prev);n.has(id)?n.delete(id):n.add(id);return n;});
+  };
+  const selAllVis=()=>setBulkSel(new Set(vis.map(l=>l.id)));
+  const clearBulkSel=()=>{setBulkSel(new Set());setBulkStageVal("");setBulkPriVal("");};
+
+  const bulkStageChange=stage=>{
+    if(!stage)return;
+    saveLeads(leads.map(l=>bulkSel.has(l.id)?{...l,stage}:l));
+    clearBulkSel();
+  };
+  const bulkPriorityChange=priority=>{
+    if(!priority)return;
+    saveLeads(leads.map(l=>bulkSel.has(l.id)?{...l,priority}:l));
+    clearBulkSel();
+  };
+  const bulkDeleteLeads=()=>{
+    if(!bulkSel.size)return;
+    const ok=window.confirm(`Delete ${bulkSel.size} lead${bulkSel.size>1?"s":""}? This cannot be undone.`);
+    if(!ok)return;
+    saveLeads(leads.filter(l=>!bulkSel.has(l.id)));
+    if(selLead&&bulkSel.has(selLead.id))setSelLead(null);
+    clearBulkSel();
+  };
+  const bulkExportCSV=()=>{
+    const selected=leads.filter(l=>bulkSel.has(l.id));
+    const headers=["Company","Contact","Phone","Email","Address","County","Industry","Stage","Priority","Revenue","Website","Created"];
+    const rows=selected.map(l=>[l.company,l.contact,l.phone,l.email,l.address,l.county,l.industry,l.stage,l.priority,l.annualRevenue,l.website,l.createdAt].map(v=>`"${String(v||"").replace(/"/g,'""')}"`).join(","));
+    const csv=[headers.join(","),...rows].join("\n");
+    const blob=new Blob([csv],{type:"text/csv"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");a.href=url;a.download=`eircrm-${selected.length}-leads.csv`;a.click();URL.revokeObjectURL(url);
+  };
+  const bulkAssignSelf=()=>{
+    if(!eProf.name)return;
+    saveLeads(leads.map(l=>bulkSel.has(l.id)?{...l,contact:eProf.name}:l));
+    clearBulkSel();
+  };
+
+  // ── Geocoding ──────────────────────────────────────────────────────────────
+  const geoAddr=async addr=>{
+    if(!mapKey||!addr)return{lat:null,lng:null};
+    try{
+      const r=await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(addr+", Ireland")}&key=${mapKey}`);
+      const d=await r.json();
+      if(d.status==="OK"&&d.results[0]){const{lat,lng}=d.results[0].geometry.location;return{lat,lng};}
+    }catch{}
+    return{lat:null,lng:null};
+  };
+  const geoOne=async lead=>{
+    setGeoMsg("📍 Locating...");
+    const c=await geoAddr(lead.address);
+    if(c.lat){upd(lead.id,c);setGeoMsg("");}
+    else{setGeoMsg("❌ Not found");setTimeout(()=>setGeoMsg(""),2000);}
+  };
+  const geoAll=async()=>{
+    if(!mapKey){setShowMapM(true);return;}
+    const miss=leads.filter(l=>!l.lat||!l.lng);
+    let next=[...leads];
+    for(let i=0;i<miss.length;i++){
+      setGeoMsg(`📍 ${i+1}/${miss.length}: ${miss[i].company}`);
+      const c=await geoAddr(miss[i].address);
+      next=next.map(l=>l.id===miss[i].id?{...l,...c}:l);
+      await new Promise(r=>setTimeout(r,220));
+    }
+    saveLeads(next);setGeoMsg("✅ Done");setTimeout(()=>setGeoMsg(""),2500);
+  };
+
+  const addLead=async()=>{
+    if(!form.company.trim())return;
+    let coords={lat:null,lng:null};
+    if(mapKey&&form.address){setGeoMsg("📍 Locating...");coords=await geoAddr(form.address);setGeoMsg("");}
+    saveLeads([...leads,{...form,...coords,id:Date.now()+"",notes:[],activities:[],createdAt:tod(),employees:+form.employees||0,annualRevenue:+form.annualRevenue||0}]);
+    setShowAdd(false);setForm(EF);
+  };
+
+  // ── Import handlers ────────────────────────────────────────────────────────
+  const resetImport=()=>{setImpPaste("");setImpPreview([]);setImpMsg("");setImpFileName("");};
+  const detectAndPreview=(rows,sourceLabel)=>{
+    const parsed=parseLeadsFromArray(rows,{stage:impDefStage,priority:impDefPriority});
+    if(!parsed.length){setImpMsg(`❌ No valid leads found in ${sourceLabel}.`);setImpPreview([]);return;}
+    setImpPreview(parsed);
+    setImpMsg(`✅ Found ${parsed.length} valid leads in ${sourceLabel}${rows.length>parsed.length?` (${rows.length-parsed.length} skipped)`:""}`);
+  };
+  const handleFile=async(file)=>{
+    if(!file)return;setImpFileName(file.name);setImpMsg(`📂 Reading ${file.name}...`);
+    const ext=file.name.toLowerCase().split(".").pop();
+    try{
+      if(ext==="json"){const text=await file.text();const data=JSON.parse(text);const rows=Array.isArray(data)?data:(data.leads||data.data||[data]);detectAndPreview(rows,"JSON");}
+      else if(ext==="csv"||ext==="tsv"){const text=await file.text();const result=Papa.parse(text,{header:true,skipEmptyLines:true,delimiter:ext==="tsv"?"\t":undefined});if(result.errors.length>0&&!result.data.length){setImpMsg(`❌ CSV parse error: ${result.errors[0].message}`);return;}detectAndPreview(result.data,"CSV");}
+      else if(ext==="xlsx"||ext==="xls"){const buf=await file.arrayBuffer();const wb=XLSX.read(buf);const sheet=wb.Sheets[wb.SheetNames[0]];const rows=XLSX.utils.sheet_to_json(sheet,{defval:""});detectAndPreview(rows,`Excel (${wb.SheetNames[0]})`);}
+      else{setImpMsg(`❌ Unsupported: .${ext}`);}
+    }catch(e){setImpMsg(`❌ Error reading file: ${e.message}`);}
+  };
+  const handlePaste=()=>{
+    if(!impPaste.trim()){setImpMsg("Paste some data first");return;}
+    const t=impPaste.trim();
+    try{
+      if(t.startsWith("[")||t.startsWith("{")){const data=JSON.parse(t);const rows=Array.isArray(data)?data:(data.leads||data.data||[data]);detectAndPreview(rows,"pasted JSON");return;}
+      if(t.includes("\t")){const rows=parseTSV(t);detectAndPreview(rows,"pasted spreadsheet data");return;}
+      const result=Papa.parse(t,{header:true,skipEmptyLines:true});
+      if(result.data.length){detectAndPreview(result.data,"pasted CSV");return;}
+      setImpMsg("❌ Couldn't detect format");
+    }catch(e){setImpMsg(`❌ Parse error: ${e.message}`);}
+  };
+  const doImport=async()=>{
+    if(!impPreview.length)return;
+    let toImport=impPreview;let dupCount=0;
+    if(impSkipDup){
+      const existing=new Set(leads.map(l=>l.company.toLowerCase().trim()));
+      const filtered=toImport.filter(l=>{if(existing.has(l.company.toLowerCase().trim())){dupCount++;return false;}return true;});
+      toImport=filtered;
+    }
+    if(mapKey){
+      setImpMsg(`📍 Geocoding ${toImport.length} addresses...`);
+      for(let i=0;i<toImport.length;i++){
+        if(toImport[i].address){const c=await geoAddr(toImport[i].address);if(c.lat){toImport[i].lat=c.lat;toImport[i].lng=c.lng;}if(i<toImport.length-1)await new Promise(r=>setTimeout(r,180));}
+      }
+    }
+    saveLeads([...leads,...toImport]);
+    setImpMsg(`✅ Imported ${toImport.length} leads!${dupCount?` (${dupCount} duplicates skipped)`:""}`);
+    setImpPreview([]);setImpPaste("");setImpFileName("");
+    setTimeout(()=>{setShowImport(false);setImpMsg("");},1800);
+  };
+
+  const saveMapKey=()=>{
+    // Aggressively clean the input: strip whitespace, newlines, quotes, and common paste artifacts
+    let k=(mapKeyI||"").trim().replace(/[\s\n\r\t"`']/g,"").replace(/^key=/i,"");
+    if(!k)return;
+    if(!/^AIza[0-9A-Za-z\-_]{30,40}$/.test(k)){
+      if(!confirm(`⚠️ Key format looks unusual.\n\nGoogle keys start with "AIza" and are ~39 characters.\nYour key: "${k.slice(0,12)}..." (${k.length} chars)\n\nSave anyway?`))return;
+    }
+    sts("ec-mapkey",k);
+    setMapKey(k);
+    setShowMapM(false);
+    setMapKeyI("");
+    setApiStatus({});
+    setTimeout(()=>testApiKey(k),300);
+  };
+  const saveEProf=()=>{sts("ec-ep",JSON.stringify(eProfI));setEProf(eProfI);setShowEmailM(false);};
+
+  // ── LEAD GEN: legacy Places API Details (fallback) ───────────────────────
+  const getDetails=async(placeId)=>{
+    if(!mapKey)return{phone:"",website:""};
+    try{
+      // Try Places API (New) Place Details — has CORS
+      const r=await fetch(`https://places.googleapis.com/v1/places/${placeId}`,{
+        headers:{
+          "X-Goog-Api-Key":mapKey,
+          "X-Goog-FieldMask":"nationalPhoneNumber,internationalPhoneNumber,websiteUri"
+        }
+      });
+      if(r.ok){
+        const d=await r.json();
+        return{
+          phone:d.internationalPhoneNumber||d.nationalPhoneNumber||"",
+          website:d.websiteUri||"",
+        };
+      }
+      // Fall back to legacy Places API
+      const r2=await fetch(`https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=formatted_phone_number,international_phone_number,website&key=${mapKey}`);
+      const d2=await r2.json();
+      if(d2.status==="OK"&&d2.result){
+        return{
+          phone:d2.result.international_phone_number||d2.result.formatted_phone_number||"",
+          website:d2.result.website||"",
+        };
+      }
+    }catch{}
+    return{phone:"",website:""};
+  };
+
+  const fetchOneDetail=async(placeId)=>{
+    if(gDetails[placeId]?.done)return;
+    setGDetails(prev=>({...prev,[placeId]:{loading:true,phone:"",website:"",done:false}}));
+    const det=await getDetails(placeId);
+    setGDetails(prev=>({...prev,[placeId]:{loading:false,phone:det.phone||"",website:det.website||"",done:true}}));
+    // Also update result in gResults
+    setGResults(prev=>prev.map(r=>r.placeId===placeId?{...r,phone:det.phone||r.phone,website:det.website||r.website}:r));
+    return det;
+  };
+
+  const loadAllDetails=async()=>{
+    if(!mapKey){setShowMapM(true);return;}
+    setGFetchingAll(true);
+    const toFetch=gResults.filter(r=>!gDetails[r.placeId]?.done);
+    setGMsg(`📞 Fetching details for ${toFetch.length} businesses...`);
+    let done=0;
+    for(const r of toFetch){
+      await fetchOneDetail(r.placeId);
+      done++;
+      setGMsg(`📞 Loading details ${done}/${toFetch.length}...`);
+      await new Promise(res=>setTimeout(res,200));
+    }
+    setGFetchingAll(false);
+    setGMsg(`✅ Details loaded for ${toFetch.length} businesses`);
+  };
+
+  // ── WEBSITE RESEARCH: scrape site + Claude AI to find owner, email, contact ─
+  const fetchWebInfo=async(biz)=>{
+    const pid=biz.placeId;
+    setGWebInfo(prev=>({...prev,[pid]:{loading:true,done:false}}));
+
+    // Step 1: attempt direct website fetch (works if CORS enabled)
+    let scraped={emails:[],phones:[],text:""};
+    const website=(gDetails[pid]?.website)||biz.website||"";
+    if(website){
+      try{
+        const controller=new AbortController();
+        const timer=setTimeout(()=>controller.abort(),5000);
+        const r=await fetch(website,{signal:controller.signal});
+        clearTimeout(timer);
+        if(r.ok){
+          const html=await r.text();
+          // Extract emails (exclude common false positives)
+          const emailRx=/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g;
+          const allEmails=[...new Set(html.match(emailRx)||[])];
+          scraped.emails=allEmails.filter(e=>
+            !/(wix|sentry|schema|example|domain|yourname|email\.com|test\.|noreply|no-reply|privacy@|gdpr@|info@google|@w3\.)/i.test(e)
+          ).slice(0,5);
+          // Extract Irish phone numbers
+          const phoneRx=/(?:(?:\+353|00353|0)[\s\-]?(?:1|7[0-9]|8[0-9]|9[0-9])[\s\-]?[0-9]{3,4}[\s\-]?[0-9]{4})/g;
+          scraped.phones=[...new Set(html.match(phoneRx)||[])].slice(0,3);
+          // Strip HTML → clean text for context
+          scraped.text=html
+            .replace(/<style[^>]*>[\s\S]*?<\/style>/gi,"")
+            .replace(/<script[^>]*>[\s\S]*?<\/script>/gi,"")
+            .replace(/<[^>]+>/g," ")
+            .replace(/\s{2,}/g," ")
+            .slice(0,3000);
+        }
+      }catch(e){/* CORS blocked or timeout — proceed without */}
+    }
+
+    // Step 2: Claude AI to extract + structure contact info
+    const ctx=[
+      `Business: "${biz.company}"`,
+      `Address: ${biz.address||biz.county+", Ireland"}`,
+      `Industry: ${biz.industry}`,
+      website?`Website: ${website}`:"",
+      scraped.emails.length?`Emails found on website: ${scraped.emails.join(", ")}`:
+        website?`Could not scrape website (CORS blocked) — infer email from domain: ${website}`:"",
+      scraped.phones.length?`Phones found on site: ${scraped.phones.join(", ")}`:"",
+      scraped.text?`Website text excerpt: ${scraped.text}`:"",
+    ].filter(Boolean).join("\n");
+
+    try{
+      const r=await fetch("https://api.anthropic.com/v1/messages",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          model:"claude-sonnet-4-20250514",
+          max_tokens:500,
+          messages:[{role:"user",content:`You are a B2B sales researcher. Extract or infer contact details for this Irish business for a cold outreach campaign.
+
+${ctx}
+
+Rules:
+- ownerName: director/owner/principal name if found or inferable
+- contactPerson: best person to contact (owner, MD, office manager, etc.)
+- jobTitle: their role
+- email: if found on website use it verbatim. If website scraped but no email found, construct likely format from domain (e.g. info@domain.ie or firstname@domain.ie). If no website, leave blank.
+- emailConfidence: "confirmed" (found on site), "likely" (constructed from domain), "unknown"
+- phone: best phone number found
+- notes: 1 sentence summary of who this business is and any relevant intel
+
+Return ONLY raw JSON, no markdown, no explanation:
+{"ownerName":"","contactPerson":"","jobTitle":"","email":"","emailConfidence":"","phone":"","notes":""}`}]
+        })
+      });
+      const d=await r.json();
+      if(d.error)throw new Error(d.error.message);
+      const txt=(d.content?.find(b=>b.type==="text")?.text||"{}").replace(/\`\`\`json|\`\`\`/g,"").trim();
+      const info=JSON.parse(txt);
+      setGWebInfo(prev=>({...prev,[pid]:{...info,scraped:scraped.emails.length>0,loading:false,done:true}}));
+    }catch(e){
+      setGWebInfo(prev=>({...prev,[pid]:{loading:false,done:true,error:e.message}}));
+    }
+  };
+
+  const researchAll=async()=>{
+    const todo=gResults.filter(r=>!gWebInfo[r.placeId]?.done);
+    if(!todo.length){setGMsg("✅ All businesses already researched");return;}
+    setGResearchingAll(true);
+    setGMsg(`🔬 Researching ${todo.length} businesses (via AI)...`);
+    for(let i=0;i<todo.length;i++){
+      setGMsg(`🔬 Researching ${i+1}/${todo.length}: ${todo[i].company}...`);
+      await fetchWebInfo(todo[i]);
+      await new Promise(res=>setTimeout(res,600));
+    }
+    setGResearchingAll(false);
+    setGMsg(`✅ Research complete for ${todo.length} businesses`);
+  };
+
+  // ── SINGLE PAGE FETCH — used by both single search and deep search ──
+  const fetchOnePage=async(query,industry,pageToken)=>{
+    const body={textQuery:query,regionCode:"ie",pageSize:20};
+    if(pageToken)body.pageToken=pageToken;
+    const res=await fetch("https://places.googleapis.com/v1/places:searchText",{
+      method:"POST",
+      headers:{
+        "Content-Type":"application/json",
+        "X-Goog-Api-Key":mapKey,
+        "X-Goog-FieldMask":"places.id,places.displayName,places.formattedAddress,places.location,places.rating,places.userRatingCount,places.nationalPhoneNumber,places.internationalPhoneNumber,places.websiteUri,nextPageToken"
+      },
+      body:JSON.stringify(body)
+    });
+    if(!res.ok){
+      let errMsg="";
+      try{const d=await res.json();errMsg=d.error?.message||`HTTP ${res.status}`;}catch{errMsg=`HTTP ${res.status}`;}
+      return{error:errMsg,places:[]};
+    }
+    const data=await res.json();
+    const places=(data.places||[]).map(p=>({
+      placeId:p.id,
+      company:p.displayName?.text||"Unknown",
+      address:(p.formattedAddress||"").replace(/,\s*Ireland$/i,"").trim(),
+      county:gLoc,industry,
+      lat:p.location?.latitude||null,
+      lng:p.location?.longitude||null,
+      rating:p.rating||null,
+      reviews:p.userRatingCount||0,
+      phone:p.internationalPhoneNumber||p.nationalPhoneNumber||"",
+      website:p.websiteUri||"",
+    }));
+    return{places,nextPageToken:data.nextPageToken||null};
+  };
+
+  // ── MAIN SEARCH — auto-paginates up to gMaxResults, with optional deep search ──
+  const searchLeads=async()=>{
+    if(!mapKey){setGMsg("⚠️ Connect your API key first");return;}
+    setGLoading(true);
+    setGResults([]);setGSel({});setGNextToken(null);setGDetails({});setGWebInfo({});
+
+    const industry=gType.label.split(" /")[0];
+    const customQuery=gQuery.trim();
+
+    // Determine areas to search across (sub-areas of the selected county)
+    const areas=(gWideArea&&COUNTY_AREAS[gLoc]?.length)?COUNTY_AREAS[gLoc]:[gLoc];
+    let keywords;
+    if(customQuery)keywords=[customQuery];
+    else if(gDeepSearch&&QUERY_VARIATIONS[gType.label])keywords=QUERY_VARIATIONS[gType.label];
+    else keywords=[gType.q];
+
+    // Build (area, keyword) pairs — each pair becomes one query
+    const queries=[];
+    for(const area of areas){
+      for(const kw of keywords){
+        queries.push({q:kw+" in "+area+" Ireland",area,kw});
+      }
+    }
+
+    // When searching many areas, just 1 page each (faster, less duplicates)
+    const maxPagesPerQuery=areas.length>5?1:Math.min(3,Math.ceil(gMaxResults/20/queries.length)||1);
+    const totalEstimatedFetches=queries.length*maxPagesPerQuery;
+    setGSearchProgress({active:true,total:totalEstimatedFetches,done:0,phase:"Starting search..."});
+
+    const allPlaces=[];
+    const seenIds=new Set();
+    let fetchCount=0;
+    let firstError="";
+
+    for(let qi=0;qi<queries.length;qi++){
+      const {q,area,kw}=queries[qi];
+      let pageToken=null;
+      for(let pg=0;pg<maxPagesPerQuery;pg++){
+        if(allPlaces.length>=gMaxResults)break;
+        const qLabel=areas.length>1?`${area}: ${kw} `:keywords.length>1?`"${kw}" `:"";
+        setGSearchProgress({active:true,total:totalEstimatedFetches,done:fetchCount,phase:`${qLabel}p${pg+1}`});
+        setGMsg(`🔍 ${qLabel}page ${pg+1}... (${allPlaces.length} found)`);
+
+        const result=await fetchOnePage(q,industry,pageToken);
+        fetchCount++;
+
+        if(result.error){
+          if(!firstError)firstError=result.error;
+          break;
+        }
+        // Deduplicate by placeId
+        for(const p of result.places){
+          if(!seenIds.has(p.placeId)){
+            seenIds.add(p.placeId);
+            allPlaces.push(p);
+            if(allPlaces.length>=gMaxResults)break;
+          }
+        }
+        // Update results progressively so user sees them stream in
+        setGResults([...allPlaces]);
+
+        if(!result.nextPageToken)break;
+        pageToken=result.nextPageToken;
+        // Google requires a brief delay before pageToken is valid (typically ~2s)
+        if(pg<maxPagesPerQuery-1)await new Promise(r=>setTimeout(r,2000));
+      }
+      // Stop early if we hit the result cap
+      if(allPlaces.length>=gMaxResults)break;
+    }
+
+    // Cache details for all results (New API returns phone/website in search)
+    if(allPlaces.length){
+      const newDetails={};
+      allPlaces.forEach(p=>{newDetails[p.placeId]={loading:false,done:true,phone:p.phone,website:p.website};});
+      setGDetails(prev=>({...prev,...newDetails}));
+    }
+
+    setGSearchProgress({active:false,total:0,done:0,phase:""});
+
+    if(allPlaces.length){
+      const parts=[];
+      if(areas.length>1)parts.push(`${areas.length} sub-areas of ${gLoc}`);
+      if(keywords.length>1)parts.push(`${keywords.length} keyword variations`);
+      const detailMsg=parts.length?` (across ${parts.join(" × ")})`:"";
+      setGMsg(`✅ Found ${allPlaces.length} unique businesses${detailMsg}. Phone+website included.`);
+    } else if(firstError){
+      // Show specific error from Google
+      let userMsg="";
+      if(/permission_denied|denied|disabled/i.test(firstError)){
+        userMsg=`❌ Places API (New) not enabled. Go to Cloud Console → Library → search "Places API (New)" → Enable. Error: ${firstError}`;
+      } else if(/api_key|key_invalid|invalid_argument/i.test(firstError)){
+        userMsg=`❌ API key issue: ${firstError}. Remove key restrictions or create a fresh unrestricted key.`;
+      } else if(/quota|rate_limit/i.test(firstError)){
+        userMsg=`❌ Quota exceeded: ${firstError}. Check billing in Google Cloud.`;
+      } else{
+        userMsg=`❌ Places API (New) error: ${firstError}`;
+      }
+      setGMsg(userMsg);
+    } else{
+      setGMsg("No results — try different keywords or location.");
+    }
+    setGLoading(false);
+  };
+
+
+  const importOne=async(biz)=>{
+    if(leads.some(l=>l.company.toLowerCase()===biz.company.toLowerCase()))return;
+    let det=gDetails[biz.placeId]?.done?gDetails[biz.placeId]:await getDetails(biz.placeId);
+    const wi=gWebInfo[biz.placeId];
+    const phone=wi?.phone||det?.phone||biz.phone||"";
+    const website=det?.website||biz.website||"";
+    const email=wi?.emailConfidence==="confirmed"?wi.email:"";
+    const contact=wi?.contactPerson||wi?.ownerName||"";
+    const noteLines=[
+      biz.rating?`⭐ ${biz.rating}/5 · ${biz.reviews} Google reviews`:"",
+      wi?.ownerName?`👤 ${wi.ownerName}${wi.jobTitle?" ("+wi.jobTitle+")":""}`:"",
+      wi?.email&&wi.emailConfidence!=="confirmed"?`📧 Likely: ${wi.email} (${wi.emailConfidence})`:"",
+      wi?.notes?`💡 ${wi.notes}`:"",
+      website?`🌐 ${website}`:"",
+    ].filter(Boolean);
+    const nl={id:Date.now()+Math.random()+"",company:biz.company,contact,phone,email,address:biz.address,county:biz.county,industry:biz.industry,employees:0,annualRevenue:0,stage:"Prospect",priority:"Medium",notes:noteLines.length?[{id:Date.now()+"n",text:noteLines.join(" · "),date:tod(),author:"Lead Generator"}]:[],activities:[],createdAt:tod(),lat:biz.lat,lng:biz.lng,source:"places",website};
+    saveLeads([...leads,nl]);setGImported(p=>p+1);setGMsg("✅ Lead added with contact info!");
+  };
+
+  const importSelected=async()=>{
+    const toImport=gResults.filter(r=>gSel[r.placeId]);
+    if(!toImport.length)return;
+    setGMsg(`Importing ${toImport.length} leads...`);
+    const existing=new Set(leads.map(l=>l.company.toLowerCase()));
+    let next=[...leads];let added=0;
+    for(const biz of toImport){
+      if(existing.has(biz.company.toLowerCase()))continue;
+      const cached=gDetails[biz.placeId];
+      const det=cached?.done?cached:await getDetails(biz.placeId);
+      const wi=gWebInfo[biz.placeId];
+      const phone=wi?.phone||det?.phone||biz.phone||"";
+      const website=det?.website||biz.website||"";
+      const email=wi?.emailConfidence==="confirmed"?wi.email:"";
+      const contact=wi?.contactPerson||wi?.ownerName||"";
+      const noteLines=[
+        biz.rating?`⭐ ${biz.rating}/5 · ${biz.reviews} Google reviews`:"",
+        wi?.ownerName?`👤 ${wi.ownerName}${wi.jobTitle?" ("+wi.jobTitle+")":""}`:"",
+        wi?.email&&wi.emailConfidence!=="confirmed"?`📧 Likely: ${wi.email} (${wi.emailConfidence})`:"",
+        wi?.notes?`💡 ${wi.notes}`:"",
+        website?`🌐 ${website}`:"",
+      ].filter(Boolean);
+      next.push({id:Date.now()+Math.random()+"",company:biz.company,contact,phone,email,address:biz.address,county:biz.county,industry:biz.industry,employees:0,annualRevenue:0,stage:"Prospect",priority:"Medium",notes:noteLines.length?[{id:Date.now()+"n",text:noteLines.join(" · "),date:tod(),author:"Lead Generator"}]:[],activities:[],createdAt:tod(),lat:biz.lat,lng:biz.lng,source:"places",website});
+      added++;
+    }
+    saveLeads(next);setGImported(p=>p+added);setGSel({});
+    setGMsg(`✅ ${added} imported with phone & website!${toImport.length-added>0?` (${toImport.length-added} already in CRM)`:""}`);
+  };
+
+  const genEmail=async()=>{
+    if(!eLead)return;
+    setEGen(true);setESubj("");setEBody("");
+    try{
+      const t=TMPLS.find(x=>x.id===eTmpl);
+      const notes=(eLead.notes||[]).map(n=>n.text).join("|")||"none";
+      const acts=(eLead.activities||[]).map(a=>`${a.type}:${a.note}`).join("|")||"none";
+      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:900,messages:[{role:"user",content:`You are ${eProf.name||"a BDM"}, ${eProf.title} at eir Business.\nWrite a ${t?.label} email to ${eLead.contact||"the owner"} at ${eLead.company} (${eLead.industry}, ${eLead.county}).\nNotes: ${notes}\nHistory: ${acts}\neir: Fibre 10Gbps, WAN, Teams, Mobile, Cloud, CCTV.\n3-4 short paragraphs, warm Irish tone, one CTA. Sign: ${eProf.name||"Your Name"} | ${eProf.title} | eir Business${eProf.phone?" | "+eProf.phone:""}.\nReturn ONLY raw JSON: {"subject":"...","body":"..."}`}]})});
+      const d=await res.json();
+      const txt=(d.content?.find(x=>x.type==="text")?.text||"").replace(/```json|```/g,"").trim();
+      const p=JSON.parse(txt);setESubj(p.subject||"");setEBody(p.body||"");
+    }catch(e){setEBody("Error: "+e.message);}
+    setEGen(false);
+  };
+
+  const sendMail=()=>{
+    if(!eLead?.email||!eSubj||!eBody)return;
+    window.location.href=`mailto:${eLead.email}?subject=${encodeURIComponent(eSubj)}&body=${encodeURIComponent(eBody)}`;
+    saveSent([{id:Date.now()+"",leadId:eLead.id,company:eLead.company,contact:eLead.contact,toEmail:eLead.email,subject:eSubj,body:eBody,template:eTmpl,date:tod()},...sent]);
+    const l=leads.find(x=>x.id===eLead.id);
+    if(l)upd(eLead.id,{activities:[...(l.activities||[]),{id:Date.now()+"a",type:"email",note:`Sent: "${eSubj}"`,date:tod()}],stage:l.stage==="Prospect"?"Contacted":l.stage});
+  };
+
+  // Pre-computed category for each lead — O(1) lookup, no recomputation
+  // Map: leadId -> {category, subCategory}
+  const leadCats=useMemo(()=>{
+    const m=new Map();
+    for(const l of leads)m.set(l.id,categorize(l));
+    return m;
+  },[leads]);
+  // Helper that always returns a valid {category, subCategory}
+  const catOf=(l)=>leadCats.get(l.id)||categorize(l);
+  // Category buckets for the filter UI counts
+  const catBuckets=useMemo(()=>{
+    const b={};
+    for(const c of Object.keys(CATEGORIES))b[c]=0;
+    for(const l of leads){const c=catOf(l);if(b[c.category]!==undefined)b[c.category]++;}
+    return b;
+  },[leads,leadCats]);
+
+  // Filtered leads — memoised, only recomputes when leads or filters change
+  const vis=useMemo(()=>{
+    const search=flt.search.toLowerCase();
+    return leads.filter(l=>{
+      if(flt.stage&&l.stage!==flt.stage)return false;
+      if(flt.industry&&l.industry!==flt.industry)return false;
+      if(flt.county&&l.county!==flt.county)return false;
+      if(flt.category){
+        const{category,subCategory}=catOf(l);
+        if(category!==flt.category)return false;
+        if(flt.subCategory&&subCategory!==flt.subCategory)return false;
+      }
+      // Custom tag filter — ANY-of-selected match
+      if(flt.tags&&flt.tags.length){
+        const leadTags=l.tags||[];
+        if(!flt.tags.some(t=>leadTags.includes(t)))return false;
+      }
+      // Product filter — lead must have at least one product of selected type
+      if(flt.product){
+        if(!(l.products||[]).some(p=>p.type===flt.product))return false;
+      }
+      // Availability filter — lead must be qualified for selected service
+      if(flt.availability){
+        if(!(l.availability||[]).includes(flt.availability))return false;
+      }
+      if(search&&!`${l.company} ${l.contact||""} ${l.email||""} ${l.industry||""}`.toLowerCase().includes(search))return false;
+      return true;
+    });
+  },[leads,flt.stage,flt.industry,flt.county,flt.search,flt.category,flt.subCategory,flt.tags,flt.product,flt.availability]);
+
+  // Paginated visible leads — only renders 50 at a time
+  const visPage=useMemo(()=>vis.slice(0,page*PAGE_SIZE),[vis,page]);
+  const hasMorePages=vis.length>page*PAGE_SIZE;
+
+  // Stage-grouped lead counts (single pass over leads)
+  const stageGroups=useMemo(()=>{
+    const g={active:[],won:[],lost:[]};
+    for(const l of leads){
+      if(l.stage==="Closed Won")g.won.push(l);
+      else if(l.stage==="Closed Lost")g.lost.push(l);
+      else g.active.push(l);
+    }
+    return g;
+  },[leads]);
+  const active=stageGroups.active;
+  const won=stageGroups.won;
+  const lost=stageGroups.lost;
+
+  // Pre-bucketed leads by stage (used by Pipeline tab and Dashboard) — single pass
+  const stageBuckets=useMemo(()=>{
+    const b={};
+    for(const s of STAGES)b[s]=[];
+    for(const l of leads){if(b[l.stage])b[l.stage].push(l);}
+    return b;
+  },[leads]);
+
+
+
+  // Pipeline values (memoised)
+  const{pipeV,forecast,wr}=useMemo(()=>{
+    let pv=0,fc=0;
+    for(const l of active){const r=l.annualRevenue||0;pv+=r;fc+=r*(STAGE_PROB[l.stage]||0)/100;}
+    return{
+      pipeV:pv,forecast:fc,
+      wr:(won.length+lost.length)?Math.round(won.length/(won.length+lost.length)*100):0
+    };
+  },[active,won.length,lost.length]);
+
+  // Activities — only compute when leads change
+  const allActs=useMemo(()=>{
+    const acts=[];
+    for(const l of leads)for(const a of(l.activities||[]))acts.push({...a,company:l.company,leadId:l.id});
+    return acts;
+  },[leads]);
+  const weekActs=useMemo(()=>allActs.filter(a=>{const d=daysSince(a.date);return d!==null&&d<=7;}),[allActs]);
+  const weekByType=useMemo(()=>ATYPES.reduce((o,t)=>{o[t]=weekActs.filter(a=>a.type===t).length;return o;},{}),[weekActs]);
+
+  // Stale leads — limit to top 50 for display
+  const stale=useMemo(()=>active.filter(l=>{const d=daysSince(lastActDate(l));return d!==null&&d>=14;}).sort((a,b)=>(daysSince(lastActDate(b))||0)-(daysSince(lastActDate(a))||0)).slice(0,50),[active]);
+
+  const priWeight={Critical:4,High:3,Medium:2,Low:1};
+  const focus=useMemo(()=>active.filter(l=>{const d=daysSince(lastActDate(l));return d===null||d>=7;}).sort((a,b)=>{const pa=priWeight[a.priority]||1,pb=priWeight[b.priority]||1;if(pa!==pb)return pb-pa;return(b.annualRevenue||0)-(a.annualRevenue||0);}).slice(0,8),[active]);
+  const topOps=useMemo(()=>[...active].sort((a,b)=>(b.annualRevenue||0)-(a.annualRevenue||0)).slice(0,5),[active]);
+  const ec=!!eProf.email;
+  // Pinned leads — clustering handles 10k+ markers, no cap needed
+  const pinned=useMemo(()=>leads.filter(l=>l.lat&&l.lng),[leads]);
+  const selCount=Object.values(gSel).filter(Boolean).length;
+  const detailsLoaded=Object.values(gDetails).filter(d=>d.done).length;
+  const researchedCount=Object.values(gWebInfo).filter(d=>d.done).length;
+
+  // Build Google Static Maps URL
+  const buildMapUrl=(lead,key)=>{
+    const W=900,H=520;
+    const dark="style=feature:all%7Celement:geometry%7Ccolor:0x1a1f2e&style=feature:all%7Celement:labels.text.fill%7Ccolor:0x64748b&style=feature:all%7Celement:labels.text.stroke%7Ccolor:0x0a0c10&style=feature:road%7Celement:geometry%7Ccolor:0x1e2433&style=feature:road.highway%7Celement:geometry%7Ccolor:0x2d3748&style=feature:water%7Celement:geometry%7Ccolor:0x0c1829&style=feature:poi%7Cvisibility:off&style=feature:transit%7Cvisibility:off";
+    if(lead?.lat&&lead?.lng){
+      return `https://maps.googleapis.com/maps/api/staticmap?center=${lead.lat},${lead.lng}&zoom=15&size=${W}x${H}&maptype=roadmap&${dark}&markers=color:0x4ade80%7Csize:mid%7C${lead.lat},${lead.lng}&key=${key}`;
+    }
+    const pinned=leads.filter(l=>l.lat&&l.lng);
+    if(!pinned.length){
+      return `https://maps.googleapis.com/maps/api/staticmap?center=53.35,-7.8&zoom=7&size=${W}x${H}&maptype=roadmap&${dark}&key=${key}`;
+    }
+    const byStage={};
+    pinned.forEach(l=>{const c=SM_COL[l.stage]||"0x94a3b8";if(!byStage[c])byStage[c]=[];byStage[c].push(`${l.lat},${l.lng}`);});
+    const markerStr=Object.entries(byStage).map(([col,pts])=>`markers=color:${col}%7Csize:tiny%7C${pts.slice(0,40).join("%7C")}`).join("&");
+    return `https://maps.googleapis.com/maps/api/staticmap?center=53.35,-7.8&zoom=7&size=${W}x${H}&maptype=roadmap&${dark}&${markerStr}&key=${key}`;
+  };
+
+
+  // Test all APIs and report status — uses Places API (New) which has CORS
+  const testApiKey=async(key)=>{
+    if(!key)return;
+    setApiStatus({testing:true,staticMaps:"...",geocoding:"...",placesNew:"...",placesLegacy:"..."});
+    const res={testing:false};
+
+    // Static Maps — test via fetch (will fail CORS but URL is still valid for img tags)
+    try{
+      const url=`https://maps.googleapis.com/maps/api/staticmap?center=53.33,-6.26&zoom=10&size=64x64&key=${key}`;
+      // Static maps doesn't support CORS, so we test via an Image() load instead
+      const ok=await new Promise(resolve=>{
+        const img=new Image();
+        const timer=setTimeout(()=>resolve(false),6000);
+        img.onload=()=>{clearTimeout(timer);resolve(true);};
+        img.onerror=()=>{clearTimeout(timer);resolve(false);};
+        img.src=url;
+      });
+      res.staticMaps=ok?"✅ OK":"❌ Image load failed — enable Maps Static API, check key restrictions";
+    }catch(e){res.staticMaps="❌ "+e.message;}
+
+    // Geocoding — has CORS
+    try{
+      const r=await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=Dublin+Ireland&key=${key}`);
+      const d=await r.json();
+      res.geocoding=d.status==="OK"?"✅ OK":"❌ "+d.status+(d.error_message?" – "+d.error_message.slice(0,80):"");
+    }catch(e){res.geocoding="❌ CORS blocked or network error: "+e.message;}
+
+    // Places API (New) — has CORS, the one we actually use
+    try{
+      const r=await fetch("https://places.googleapis.com/v1/places:searchText",{
+        method:"POST",
+        headers:{
+          "Content-Type":"application/json",
+          "X-Goog-Api-Key":key,
+          "X-Goog-FieldMask":"places.id,places.displayName"
+        },
+        body:JSON.stringify({textQuery:"solicitors Dublin Ireland",regionCode:"ie",pageSize:1})
+      });
+      if(r.ok){
+        const d=await r.json();
+        res.placesNew=`✅ OK (${d.places?.length||0} results)`;
+      } else{
+        const errData=await r.json().catch(()=>({}));
+        const msg=errData.error?.message||`HTTP ${r.status}`;
+        res.placesNew="❌ "+msg.slice(0,120);
+      }
+    }catch(e){res.placesNew="❌ "+e.message;}
+
+    // Places API (Legacy) — no CORS, will likely fail
+    try{
+      const r=await fetch(`https://maps.googleapis.com/maps/api/place/textsearch/json?query=solicitors+Dublin&key=${key}`);
+      const d=await r.json();
+      res.placesLegacy=d.status==="OK"?"✅ OK (fallback works)":"❌ "+d.status+(d.error_message?" – "+d.error_message.slice(0,80):"");
+    }catch(e){res.placesLegacy="⚠️ CORS blocked (expected — use Places API New)";}
+
+    setApiStatus(res);
+  };
+
+  // Reset map error when key changes
+  useEffect(()=>{setMapImgErr("");setMapLoadErr("");},[mapKey]);
+
+  // ── INTERACTIVE GOOGLE MAP ───────────────────────────────────────────────
+  const initInteractiveMap=async()=>{
+    if(!mapKey||!mapDivRef.current)return;
+    setMapLoadErr("");
+    try{
+      const m=await loadGoogleMapsJS(mapKey);
+      // Load clusterer in parallel — non-blocking, gracefully degrades if it fails
+      const mcPromise=loadMarkerClusterer().catch(e=>{console.warn("MarkerClusterer load failed:",e);return null;});
+      if(!mapDivRef.current)return;
+      if(!mapInstanceRef.current){
+        mapInstanceRef.current=new m.Map(mapDivRef.current,{
+          center:{lat:53.35,lng:-7.8},
+          zoom:7,
+          mapTypeControl:true,
+          mapTypeControlOptions:{style:m.MapTypeControlStyle.HORIZONTAL_BAR,position:m.ControlPosition.TOP_LEFT},
+          streetViewControl:true,
+          fullscreenControl:true,
+          zoomControl:true,
+          styles:DARK_MAP_STYLE,
+          gestureHandling:"greedy",
+        });
+        infoWindowRef.current=new m.InfoWindow({maxWidth:320});
+      }
+      const mc=await mcPromise;
+      if(mc&&!clusterRef.current){
+        // Custom dark-themed cluster renderer
+        const renderer={
+          render:({count,position})=>{
+            const color=count>500?"#dc2626":count>100?"#f97316":count>20?"#f59e0b":"#10b981";
+            return new m.Marker({
+              position,
+              icon:{
+                path:m.SymbolPath.CIRCLE,
+                fillColor:color,
+                fillOpacity:0.9,
+                strokeColor:"#fff",
+                strokeWeight:3,
+                scale:Math.min(14+Math.log10(count)*4,28),
+              },
+              label:{text:String(count),color:"#0f172a",fontSize:"12px",fontWeight:"700"},
+              zIndex:1000+count,
+            });
+          },
+        };
+        clusterRef.current=new mc.MarkerClusterer({
+          map:mapInstanceRef.current,
+          markers:[],
+          renderer,
+        });
+      }
+      setMapLoaded(true);
+      drawMarkers(m);
+    }catch(e){
+      setMapLoadErr(e.message||"Failed to load map");
+      setMapLoaded(false);
+    }
+  };
+
+  const drawMarkers=(maps)=>{
+    const m=maps||window.google?.maps;
+    if(!m||!mapInstanceRef.current)return;
+
+    // Clear existing markers from cluster (or map)
+    if(clusterRef.current){
+      clusterRef.current.clearMarkers();
+    } else {
+      markersRef.current.forEach(mk=>mk.setMap(null));
+    }
+    markersRef.current=[];
+
+    // Filter visible markers based on category + stage filters
+    const visible=pinned.filter(l=>{
+      if(mapStageFilter.size&&!mapStageFilter.has(l.stage))return false;
+      if(mapColorMode==="category"){
+        const{category}=catOf(l);
+        if(!mapCatFilter.has(category))return false;
+      }
+      return true;
+    });
+
+    if(!visible.length){
+      // Still set view even if filtered to empty
+      if(mapPin?.lat){
+        mapInstanceRef.current.setCenter({lat:mapPin.lat,lng:mapPin.lng});
+        mapInstanceRef.current.setZoom(15);
+      }
+      return;
+    }
+
+    // Build markers
+    const newMarkers=visible.map(lead=>{
+      const{category,subCategory}=catOf(lead);
+      const color=mapColorMode==="category"
+        ?(CATEGORIES[category]?.color||"#94a3b8")
+        :(SC[lead.stage]||"#94a3b8");
+      const marker=new m.Marker({
+        position:{lat:lead.lat,lng:lead.lng},
+        title:`${lead.company} · ${category}`,
+        icon:{
+          path:m.SymbolPath.CIRCLE,
+          fillColor:color,
+          fillOpacity:0.92,
+          strokeColor:"#fff",
+          strokeWeight:2,
+          scale:9,
+        },
+      });
+      marker.addListener("click",()=>{
+        const rev=lead.annualRevenue?`<div style="font-size:13px;color:#10b981;font-weight:700;margin-bottom:4px;">€${lead.annualRevenue.toLocaleString()}</div>`:"";
+        const contact=lead.contact?`<div style="font-size:11px;color:#475569;margin-bottom:2px;">👤 ${lead.contact}</div>`:"";
+        const phone=lead.phone?`<div style="font-size:11px;color:#475569;margin-bottom:2px;">📞 ${lead.phone}</div>`:"";
+        const email=lead.email?`<div style="font-size:11px;color:#475569;margin-bottom:2px;">📧 ${lead.email}</div>`:"";
+        const website=lead.website?`<div style="font-size:11px;margin-bottom:2px;">🌐 <a href="${lead.website}" target="_blank" rel="noreferrer" style="color:#0ea5e9;text-decoration:none;">${lead.website.replace(/^https?:\/\//,"").split("/")[0]}</a></div>`:"";
+        const content=`
+          <div style="color:#1a1f2e;font-family:-apple-system,BlinkMacSystemFont,sans-serif;padding:6px 4px;min-width:240px;max-width:300px;">
+            <div style="font-weight:700;font-size:15px;margin-bottom:5px;color:#0f172a;">${lead.company}</div>
+            <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:6px;">
+              <div style="display:inline-block;background:${color}22;color:${color};border:1px solid ${color}55;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;">${category}${subCategory&&subCategory!==category?" · "+subCategory:""}</div>
+              <div style="display:inline-block;background:${SC[lead.stage]}22;color:${SC[lead.stage]};border:1px solid ${SC[lead.stage]}44;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;">${lead.stage} · ${lead.priority}</div>
+            </div>
+            ${rev}
+            <div style="font-size:11px;color:#64748b;margin-bottom:5px;">${lead.address||""}</div>
+            ${contact}${phone}${email}${website}
+            <div style="display:flex;gap:5px;margin-top:9px;">
+              <button id="__edit_${lead.id}" style="flex:1;background:#10b981;color:#fff;border:none;padding:7px 8px;border-radius:5px;font-size:11px;cursor:pointer;font-weight:600;">✏️ Edit Lead</button>
+              <button id="__email_${lead.id}" style="flex:1;background:#a78bfa;color:#fff;border:none;padding:7px 8px;border-radius:5px;font-size:11px;cursor:pointer;font-weight:600;">✉️ Email</button>
+              <button id="__open_${lead.id}" style="background:#475569;color:#fff;border:none;padding:7px 9px;border-radius:5px;font-size:11px;cursor:pointer;font-weight:600;">↗</button>
+            </div>
+          </div>`;
+        infoWindowRef.current.setContent(content);
+        infoWindowRef.current.open(mapInstanceRef.current,marker);
+        setTimeout(()=>{
+          const editBtn=document.getElementById("__edit_"+lead.id);
+          const emailBtn=document.getElementById("__email_"+lead.id);
+          const openBtn=document.getElementById("__open_"+lead.id);
+          if(editBtn)editBtn.onclick=()=>{setMapEditLead(lead);infoWindowRef.current.close();};
+          if(emailBtn)emailBtn.onclick=()=>{setELead(lead);setTab("email");setEView("compose");infoWindowRef.current.close();};
+          if(openBtn)openBtn.onclick=()=>{setSelLead(lead);setTab("leads");infoWindowRef.current.close();};
+        },50);
+      });
+      return marker;
+    });
+
+    markersRef.current=newMarkers;
+
+    // Add to cluster (preferred) OR directly to map (fallback)
+    if(clusterRef.current){
+      clusterRef.current.addMarkers(newMarkers);
+    } else {
+      newMarkers.forEach(mk=>mk.setMap(mapInstanceRef.current));
+    }
+
+    // Auto-fit bounds only on first render (when no specific pin)
+    if(visible.length>1&&!mapPin){
+      const bounds=new m.LatLngBounds();
+      visible.forEach(l=>bounds.extend({lat:l.lat,lng:l.lng}));
+      mapInstanceRef.current.fitBounds(bounds,40);
+    } else if(mapPin?.lat){
+      mapInstanceRef.current.setCenter({lat:mapPin.lat,lng:mapPin.lng});
+      mapInstanceRef.current.setZoom(15);
+    }
+  };
+
+  // Initialise map when entering map tab
+  useEffect(()=>{
+    if(tab==="map"&&mapKey)initInteractiveMap();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[tab,mapKey]);
+
+  // Redraw markers when leads, filters, or colour mode change
+  useEffect(()=>{
+    if(mapLoaded&&tab==="map")drawMarkers();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[leads,mapLoaded,mapPin?.id,mapCatFilter,mapStageFilter,mapColorMode]);
+
+  // Save edits from the map edit panel
+  const saveMapEdit=()=>{
+    if(!mapEditLead)return;
+    upd(mapEditLead.id,{
+      company:mapEditLead.company,contact:mapEditLead.contact,phone:mapEditLead.phone,
+      email:mapEditLead.email,stage:mapEditLead.stage,priority:mapEditLead.priority,
+      annualRevenue:Number(mapEditLead.annualRevenue)||0,employees:Number(mapEditLead.employees)||0,
+    });
+    setMapEditLead(null);
+    // Redraw to update marker colours if stage changed
+    setTimeout(()=>drawMarkers(),100);
+  };
+
+  // ── EXCEL EXPORT ─────────────────────────────────────────────────────────
+  const [xlSheets,setXlSheets]=useState({leads:true,activity:true,pipeline:true,emails:true,analytics:true,notes:true});
+  const [xlFilters,setXlFilters]=useState({stages:[...STAGES],priorities:["High","Medium","Low"],counties:[],industries:[],dateFrom:"",dateTo:""});
+  const [xlColumns,setXlColumns]=useState({
+    company:true,contact:true,phone:true,email:true,industry:true,county:true,
+    stage:true,priority:true,annualRevenue:true,employees:true,address:true,
+    website:true,createdAt:true,source:true,lat:false,lng:false,notesCount:true,
+    lastNote:true,lastActivity:true,daysCold:true,probability:true,weightedRev:true,
+  });
+  const [xlCustomFields,setXlCustomFields]=useState([]);
+  const [xlNewField,setXlNewField]=useState("");
+  const [xlGenerating,setXlGenerating]=useState(false);
+
+  // Apply user filters to leads
+  const xlFilteredLeads=()=>{
+    return leads.filter(l=>{
+      if(xlFilters.stages.length&&!xlFilters.stages.includes(l.stage))return false;
+      if(xlFilters.priorities.length&&!xlFilters.priorities.includes(l.priority))return false;
+      if(xlFilters.counties.length&&!xlFilters.counties.includes(l.county))return false;
+      if(xlFilters.industries.length&&!xlFilters.industries.includes(l.industry))return false;
+      if(xlFilters.dateFrom&&l.createdAt<xlFilters.dateFrom)return false;
+      if(xlFilters.dateTo&&l.createdAt>xlFilters.dateTo)return false;
+      return true;
+    });
+  };
+
+  // Build the Leads sheet row from a lead based on column selection
+  const buildLeadRow=(l)=>{
+    const lastAct=lastActDate(l);
+    const days=daysSince(lastAct);
+    const prob=STAGE_PROB[l.stage]||0;
+    const row={};
+    if(xlColumns.company)row["Company"]=l.company;
+    if(xlColumns.contact)row["Contact Name"]=l.contact||"";
+    if(xlColumns.phone)row["Phone"]=l.phone||"";
+    if(xlColumns.email)row["Email"]=l.email||"";
+    if(xlColumns.industry)row["Industry"]=l.industry;
+    if(xlColumns.county)row["County"]=l.county;
+    if(xlColumns.stage)row["Stage"]=l.stage;
+    if(xlColumns.priority)row["Priority"]=l.priority;
+    if(xlColumns.annualRevenue)row["Annual Revenue (€)"]=l.annualRevenue||0;
+    if(xlColumns.weightedRev)row["Weighted Revenue (€)"]=Math.round((l.annualRevenue||0)*prob/100);
+    if(xlColumns.probability)row["Win Probability (%)"]=prob;
+    if(xlColumns.employees)row["Employees"]=l.employees||0;
+    if(xlColumns.address)row["Address"]=l.address||"";
+    if(xlColumns.website)row["Website"]=l.website||"";
+    if(xlColumns.source)row["Source"]=l.source||"manual";
+    if(xlColumns.createdAt)row["Created Date"]=l.createdAt||"";
+    if(xlColumns.lastActivity)row["Last Activity"]=lastAct||"never";
+    if(xlColumns.daysCold)row["Days Since Activity"]=days;
+    if(xlColumns.notesCount)row["Notes Count"]=l.notes?.length||0;
+    if(xlColumns.lastNote)row["Latest Note"]=l.notes?.[l.notes.length-1]?.text||"";
+    if(xlColumns.lat)row["Latitude"]=l.lat||"";
+    if(xlColumns.lng)row["Longitude"]=l.lng||"";
+    // Custom fields appended at end
+    xlCustomFields.forEach(f=>{row[f]=l.custom?.[f]||"";});
+    return row;
+  };
+
+  const generateExcel=async()=>{
+    setXlGenerating(true);
+    try{
+      const wb=XLSX.utils.book_new();
+      const filtered=xlFilteredLeads();
+
+      // === LEADS SHEET ===
+      if(xlSheets.leads){
+        const data=filtered.map(buildLeadRow);
+        const ws=XLSX.utils.json_to_sheet(data);
+        // Auto-width columns
+        const keys=data[0]?Object.keys(data[0]):[];
+        ws["!cols"]=keys.map(k=>{
+          const maxLen=Math.max(k.length,...data.map(r=>String(r[k]||"").length));
+          return{wch:Math.min(Math.max(maxLen+2,10),50)};
+        });
+        ws["!freeze"]={xSplit:0,ySplit:1};
+        XLSX.utils.book_append_sheet(wb,ws,"Leads");
+      }
+
+      // === ACTIVITY LOG ===
+      if(xlSheets.activity){
+        const acts=[];
+        filtered.forEach(l=>{
+          (l.activities||[]).forEach(a=>{
+            acts.push({
+              "Date":a.date||"",
+              "Time":a.time||"",
+              "Company":l.company,
+              "Type":a.type,
+              "Description":a.description||"",
+              "Stage at Time":l.stage,
+              "Author":a.author||"",
+            });
+          });
+        });
+        acts.sort((a,b)=>(b.Date+b.Time).localeCompare(a.Date+a.Time));
+        if(acts.length){
+          const ws=XLSX.utils.json_to_sheet(acts);
+          ws["!cols"]=[{wch:12},{wch:8},{wch:30},{wch:14},{wch:50},{wch:18},{wch:18}];
+          ws["!freeze"]={xSplit:0,ySplit:1};
+          XLSX.utils.book_append_sheet(wb,ws,"Activity Log");
+        }
+      }
+
+      // === NOTES ===
+      if(xlSheets.notes){
+        const notes=[];
+        filtered.forEach(l=>{
+          (l.notes||[]).forEach(n=>{
+            notes.push({
+              "Date":n.date||"",
+              "Company":l.company,
+              "Stage":l.stage,
+              "Note":n.text||"",
+              "Author":n.author||"",
+            });
+          });
+        });
+        notes.sort((a,b)=>b.Date.localeCompare(a.Date));
+        if(notes.length){
+          const ws=XLSX.utils.json_to_sheet(notes);
+          ws["!cols"]=[{wch:12},{wch:30},{wch:16},{wch:60},{wch:18}];
+          ws["!freeze"]={xSplit:0,ySplit:1};
+          XLSX.utils.book_append_sheet(wb,ws,"Notes");
+        }
+      }
+
+      // === SALES PIPELINE ===
+      if(xlSheets.pipeline){
+        const totalVal=filtered.reduce((s,l)=>s+(l.annualRevenue||0),0);
+        const pipeline=STAGES.map(stage=>{
+          const stageLeads=filtered.filter(l=>l.stage===stage);
+          const totalValue=stageLeads.reduce((s,l)=>s+(l.annualRevenue||0),0);
+          const prob=STAGE_PROB[stage]||0;
+          return{
+            "Stage":stage,
+            "Lead Count":stageLeads.length,
+            "Total Value (€)":totalValue,
+            "Avg Deal Size (€)":stageLeads.length?Math.round(totalValue/stageLeads.length):0,
+            "Win Probability (%)":prob,
+            "Weighted Value (€)":Math.round(totalValue*prob/100),
+            "% of Pipeline":totalVal?((totalValue/totalVal)*100).toFixed(1)+"%":"0%",
+          };
+        });
+        // Add totals row
+        pipeline.push({
+          "Stage":"TOTAL",
+          "Lead Count":filtered.length,
+          "Total Value (€)":totalVal,
+          "Avg Deal Size (€)":filtered.length?Math.round(totalVal/filtered.length):0,
+          "Win Probability (%)":"",
+          "Weighted Value (€)":pipeline.reduce((s,p)=>s+(p["Weighted Value (€)"]||0),0),
+          "% of Pipeline":"100%",
+        });
+        const ws=XLSX.utils.json_to_sheet(pipeline);
+        ws["!cols"]=[{wch:18},{wch:11},{wch:18},{wch:18},{wch:18},{wch:20},{wch:14}];
+        ws["!freeze"]={xSplit:0,ySplit:1};
+        XLSX.utils.book_append_sheet(wb,ws,"Sales Pipeline");
+      }
+
+      // === EMAIL OUTREACH ===
+      if(xlSheets.emails){
+        const emails=sent.map(e=>{
+          const lead=leads.find(l=>l.id===e.leadId);
+          return{
+            "Date":new Date(e.timestamp||e.date||Date.now()).toISOString().slice(0,10),
+            "Company":lead?.company||"Unknown",
+            "Contact":lead?.contact||"",
+            "To":e.to||lead?.email||"",
+            "Subject":e.subject||"",
+            "Body Preview":(e.body||"").slice(0,120)+"...",
+            "Stage at Send":lead?.stage||"",
+          };
+        });
+        if(emails.length){
+          const ws=XLSX.utils.json_to_sheet(emails);
+          ws["!cols"]=[{wch:12},{wch:30},{wch:20},{wch:30},{wch:40},{wch:60},{wch:18}];
+          ws["!freeze"]={xSplit:0,ySplit:1};
+          XLSX.utils.book_append_sheet(wb,ws,"Email Outreach");
+        }
+      }
+
+      // === ANALYTICS ===
+      if(xlSheets.analytics){
+        const won=filtered.filter(l=>l.stage==="Closed Won");
+        const lost=filtered.filter(l=>l.stage==="Closed Lost");
+        const active=filtered.filter(l=>!["Closed Won","Closed Lost"].includes(l.stage));
+        const wonValue=won.reduce((s,l)=>s+(l.annualRevenue||0),0);
+        const activeValue=active.reduce((s,l)=>s+(l.annualRevenue||0),0);
+        const weightedActive=active.reduce((s,l)=>s+(l.annualRevenue||0)*((STAGE_PROB[l.stage]||0)/100),0);
+        const closedTotal=won.length+lost.length;
+        const winRate=closedTotal?((won.length/closedTotal)*100).toFixed(1):"0";
+
+        const kpis=[
+          {"Metric":"Total Leads","Value":filtered.length,"Notes":"After applying filters"},
+          {"Metric":"Active Leads","Value":active.length,"Notes":"Not closed (won or lost)"},
+          {"Metric":"Closed Won","Value":won.length,"Notes":"Successful deals"},
+          {"Metric":"Closed Lost","Value":lost.length,"Notes":"Lost opportunities"},
+          {"Metric":"Win Rate (%)","Value":winRate,"Notes":won.length+" of "+closedTotal+" closed deals"},
+          {"Metric":"Pipeline Value (€)","Value":activeValue,"Notes":"Total revenue in active pipeline"},
+          {"Metric":"Weighted Pipeline (€)","Value":Math.round(weightedActive),"Notes":"Value × win probability"},
+          {"Metric":"Closed Revenue (€)","Value":wonValue,"Notes":"Won deals total"},
+          {"Metric":"Avg Deal Size (€)","Value":won.length?Math.round(wonValue/won.length):0,"Notes":"Average of won deals"},
+          {"Metric":"High Priority Leads","Value":filtered.filter(l=>l.priority==="High").length,"Notes":""},
+          {"Metric":"Emails Sent","Value":sent.length,"Notes":"Total outreach emails"},
+          {"Metric":"Geocoded Leads","Value":filtered.filter(l=>l.lat).length,"Notes":"Plotted on map"},
+        ];
+
+        // By industry breakdown
+        const byInd={};
+        filtered.forEach(l=>{byInd[l.industry]=(byInd[l.industry]||0)+1;});
+        const indRows=Object.entries(byInd).map(([k,v])=>({"Industry":k,"Lead Count":v,"% of Total":((v/filtered.length)*100).toFixed(1)+"%"}));
+        // By county
+        const byCnt={};
+        filtered.forEach(l=>{byCnt[l.county]=(byCnt[l.county]||0)+1;});
+        const cntRows=Object.entries(byCnt).map(([k,v])=>({"County":k,"Lead Count":v,"% of Total":((v/filtered.length)*100).toFixed(1)+"%"}));
+
+        // Build sheet with multiple sections
+        const ws=XLSX.utils.aoa_to_sheet([
+          ["KPI SUMMARY"],
+          ["Metric","Value","Notes"],
+          ...kpis.map(k=>[k.Metric,k.Value,k.Notes]),
+          [],
+          ["BY INDUSTRY"],
+          ["Industry","Lead Count","% of Total"],
+          ...indRows.map(r=>[r.Industry,r["Lead Count"],r["% of Total"]]),
+          [],
+          ["BY COUNTY"],
+          ["County","Lead Count","% of Total"],
+          ...cntRows.map(r=>[r.County,r["Lead Count"],r["% of Total"]]),
+        ]);
+        ws["!cols"]=[{wch:28},{wch:18},{wch:40}];
+        XLSX.utils.book_append_sheet(wb,ws,"Analytics");
+      }
+
+      // === EXPORT METADATA SHEET ===
+      const meta=XLSX.utils.aoa_to_sheet([
+        ["eirCRM Excel Export"],
+        [],
+        ["Generated",new Date().toLocaleString()],
+        ["Generated By",eProf?.name||"Anonymous"],
+        ["Total Leads (unfiltered)",leads.length],
+        ["Total Leads (filtered)",filtered.length],
+        [],
+        ["FILTERS APPLIED"],
+        ["Stages",xlFilters.stages.join(", ")||"(all)"],
+        ["Priorities",xlFilters.priorities.join(", ")||"(all)"],
+        ["Counties",xlFilters.counties.join(", ")||"(all)"],
+        ["Industries",xlFilters.industries.join(", ")||"(all)"],
+        ["Date From",xlFilters.dateFrom||"(any)"],
+        ["Date To",xlFilters.dateTo||"(any)"],
+        [],
+        ["SHEETS INCLUDED"],
+        ...Object.entries(xlSheets).filter(([k,v])=>v).map(([k])=>[k]),
+      ]);
+      meta["!cols"]=[{wch:24},{wch:50}];
+      XLSX.utils.book_append_sheet(wb,meta,"_Info");
+
+      // Generate file
+      const wbout=XLSX.write(wb,{bookType:"xlsx",type:"array",cellDates:true});
+      const blob=new Blob([wbout],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement("a");
+      a.href=url;a.download=`eirCRM_${new Date().toISOString().slice(0,10)}.xlsx`;
+      document.body.appendChild(a);a.click();
+      setTimeout(()=>{URL.revokeObjectURL(url);a.remove();},100);
+    }catch(e){
+      alert("Excel export failed: "+e.message);
+    }
+    setXlGenerating(false);
+  };
+
+  const toggleXlFilter=(key,val)=>{
+    setXlFilters(f=>{
+      const arr=f[key];
+      return{...f,[key]:arr.includes(val)?arr.filter(x=>x!==val):[...arr,val]};
+    });
+  };
+
+  const NAV=[
+    {id:"dashboard",icon:"📊",lbl:"Dashboard"},
+    {id:"targets",icon:"🎯",lbl:"Bonus & Targets"},
+    {id:"leads",icon:"🏢",lbl:"Leads"},
+    {id:"pipeline",icon:"⚡",lbl:"Pipeline"},
+    {id:"generator",icon:"🔍",lbl:"Lead Generator"},
+    {id:"email",icon:"✉️",lbl:"Email Outreach"},
+    {id:"map",icon:"🗺️",lbl:"Map View"},
+    {id:"excel",icon:"📈",lbl:"Excel Export"},
+    {id:"activity",icon:"📋",lbl:"Activity"},
+  ];
+
+  return(
+    <div style={{display:"flex",height:"100vh",background:BG,color:"#0f172a",fontFamily:"system-ui,sans-serif",overflow:"hidden",fontSize:14}}>
+
+      {/* SIDEBAR */}
+      <div style={{width:206,background:SUR,borderRight:`1px solid ${BDR}`,display:"flex",flexDirection:"column",flexShrink:0}}>
+        <div style={{padding:"16px 18px 13px",borderBottom:`1px solid ${BDR}`}}>
+          <div style={{fontSize:20,fontWeight:700,color:"#0f172a"}}>eir<span style={{color:"#10b981"}}>CRM</span></div>
+          <div style={{fontSize:10,color:"#10b981",fontWeight:700,letterSpacing:.8,textTransform:"uppercase",marginTop:2,fontSize:9}}>B2B Sales Suite</div>
+        </div>
+        <div style={{flex:1,paddingTop:5,overflow:"auto"}}>
+          {NAV.map(n=>(
+            <div key={n.id} onClick={()=>setTab(n.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 18px",cursor:"pointer",color:tab===n.id?"#10b981":"#475569",background:tab===n.id?"#ecfdf5":"transparent",borderLeft:tab===n.id?"3px solid #10b981":"3px solid transparent",fontSize:13,fontWeight:tab===n.id?500:400}}>
+              <span>{n.icon}</span><span>{n.lbl}</span>
+              {n.id==="generator"&&gImported>0&&<span style={{marginLeft:"auto",fontSize:10,background:"#4ade8022",color:"#4ade80",borderRadius:10,padding:"1px 6px"}}>{gImported}</span>}
+            </div>
+          ))}
+        </div>
+        <div style={{borderTop:`1px solid ${BDR}`}}>
+          <div onClick={()=>{setMapKeyI(mapKey);setShowMapM(true);}} style={{padding:"9px 18px",cursor:"pointer",borderBottom:`1px solid ${BDR}`}}>
+            <div style={{display:"flex",alignItems:"center",gap:7}}><Dot on={!!mapKey}/><span style={{fontSize:11,color:mapKey?"#4ade80":"#f59e0b",fontWeight:600}}>{mapKey?"Maps Connected":"Connect Maps"}</span></div>
+            <div style={{fontSize:10,color:"#475569",marginTop:1,paddingLeft:15}}>Maps · Geocoding · Lead Gen</div>
+          </div>
+          <div onClick={()=>{setEProfI({...eProf});setShowEmailM(true);}} style={{padding:"9px 18px",cursor:"pointer",borderBottom:`1px solid ${BDR}`}}>
+            <div style={{display:"flex",alignItems:"center",gap:7}}><Dot on={ec} col="#a78bfa"/><span style={{fontSize:11,color:ec?"#a78bfa":"#f59e0b",fontWeight:600}}>{ec?"Email Connected":"Connect Email"}</span></div>
+            <div style={{fontSize:10,color:"#475569",marginTop:1,paddingLeft:15,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ec?eProf.email:"Set up your eir email"}</div>
+          </div>
+        </div>
+        <div style={{padding:"9px 18px"}}><div style={{fontSize:10,color:"#475569"}}>Leads</div><div style={{fontSize:22,fontWeight:700,color:"#4ade80"}}>{leads.length}</div></div>
+      </div>
+
+      {/* MAIN */}
+      <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+        <div style={{background:SUR,borderBottom:`1px solid ${BDR}`,padding:"13px 20px",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
+          <div>
+            <div style={{fontSize:17,fontWeight:700,color:"#0f172a"}}>{NAV.find(n=>n.id===tab)?.icon} {NAV.find(n=>n.id===tab)?.lbl}</div>
+            <div style={{fontSize:11,color:"#64748b",marginTop:2}}>Eir Business Development · B2B Pipeline</div>
+          </div>
+          <div style={{display:"flex",gap:10,alignItems:"center"}}>
+            {geoMsg&&<div style={{fontSize:12,color:"#fbbf24",padding:"4px 10px",background:"#2d1f07",borderRadius:7,border:"1px solid #f59e0b44"}}>{geoMsg}</div>}
+            <button style={{...S.x,fontSize:13,padding:"8px 14px"}} onClick={()=>{resetImport();setShowImport(true);}}>⬆ Import Leads</button>
+            <button style={S.g} onClick={()=>setShowAdd(true)}>+ Add Lead</button>
+          </div>
+        </div>
+
+        <div style={{flex:1,overflow:"hidden",display:"flex"}}>
+          <div style={{flex:1,overflow:tab==="map"?"hidden":"auto",padding:tab==="map"?0:20,display:"flex",flexDirection:"column"}}>
+
+            {/* DASHBOARD */}
+            {tab==="dashboard"&&(
+              <div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(5, 1fr)",gap:12,marginBottom:14}}>
+                  <div style={{...S.card,padding:"14px 16px"}}><div style={{fontSize:10,color:"#64748b",fontWeight:600,textTransform:"uppercase",marginBottom:5}}>💰 Pipeline Value</div><div style={{fontSize:22,fontWeight:700,color:"#4ade80",letterSpacing:-1}}>{fmt(pipeV)}</div><div style={{fontSize:11,color:"#475569",marginTop:3}}>{active.length} active deals</div></div>
+                  <div style={{...S.card,padding:"14px 16px"}}><div style={{fontSize:10,color:"#64748b",fontWeight:600,textTransform:"uppercase",marginBottom:5}}>🎯 Forecast</div><div style={{fontSize:22,fontWeight:700,color:"#38bdf8",letterSpacing:-1}}>{fmt(forecast)}</div><div style={{fontSize:11,color:"#475569",marginTop:3}}>weighted by stage</div></div>
+                  <div style={{...S.card,padding:"14px 16px"}}><div style={{fontSize:10,color:"#64748b",fontWeight:600,textTransform:"uppercase",marginBottom:5}}>🏆 Win Rate</div><div style={{fontSize:22,fontWeight:700,color:"#a78bfa",letterSpacing:-1}}>{wr}%</div><div style={{fontSize:11,color:"#475569",marginTop:3}}>{won.length} won · {lost.length} lost</div></div>
+                  <div style={{...S.card,padding:"14px 16px"}}><div style={{fontSize:10,color:"#64748b",fontWeight:600,textTransform:"uppercase",marginBottom:5}}>📅 This Week</div><div style={{fontSize:22,fontWeight:700,color:"#fbbf24",letterSpacing:-1}}>{weekActs.length}</div><div style={{fontSize:11,color:"#475569",marginTop:3}}>activities logged</div></div>
+                  <div onClick={()=>{if(stale.length){setSelLead(stale[0]);setTab("leads");}}} style={{...S.card,padding:"14px 16px",cursor:stale.length?"pointer":"default",borderColor:stale.length?"#f87171":BDR}}><div style={{fontSize:10,color:"#64748b",fontWeight:600,textTransform:"uppercase",marginBottom:5}}>🚨 Stale Deals</div><div style={{fontSize:22,fontWeight:700,color:stale.length?"#f87171":"#475569",letterSpacing:-1}}>{stale.length}</div><div style={{fontSize:11,color:"#475569",marginTop:3}}>{stale.length?"need follow-up":"all on track ✓"}</div></div>
+                </div>
+                <div style={{...S.card,marginBottom:14,padding:"15px 18px"}}>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:14}}>🎯</span><span style={{fontSize:13,fontWeight:700,color:"#0f172a"}}>Today's Focus</span><span style={{fontSize:11,color:"#64748b"}}>· {focus.length} deals need your attention</span></div>
+                    <span style={{fontSize:10,color:"#475569"}}>Sorted by priority + value</span>
+                  </div>
+                  {!focus.length?(<div style={{textAlign:"center",padding:"30px 0",color:"#475569"}}><div style={{fontSize:32,marginBottom:6}}>{leads.length?"✨":"👋"}</div><div style={{fontSize:13}}>{leads.length?"Brilliant — every deal is up to date!":"No leads yet."}</div></div>):(
+                    <div style={{display:"grid",gridTemplateColumns:"repeat(2, 1fr)",gap:8}}>
+                      {focus.map(l=>{const days=daysSince(lastActDate(l));const sCol=stalenessColor(days);return(
+                        <div key={l.id} onClick={()=>{setSelLead(l);setTab("leads");}} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 11px",background:BG,border:`1px solid ${BDR}`,borderLeft:`3px solid ${PCOL[l.priority]}`,borderRadius:8,cursor:"pointer"}}>
+                          <Av name={l.company} sz={32}/>
+                          <div style={{flex:1,minWidth:0}}><div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2,flexWrap:"wrap"}}><span style={{fontSize:12,fontWeight:600,color:"#0f172a",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.company}</span><span style={{fontSize:9,color:PCOL[l.priority],fontWeight:600}}>{l.priority==="Critical"?"🔥":l.priority==="High"?"⚡":""}</span></div><div style={{display:"flex",alignItems:"center",gap:7}}><Tag bg={SB[l.stage]} col={SC[l.stage]}>{l.stage}</Tag><span style={{fontSize:10,color:sCol,fontWeight:600}}>● {stalenessLabel(days)}</span></div></div>
+                          <div style={{textAlign:"right",flexShrink:0}}><div style={{fontSize:12,fontWeight:700,color:"#4ade80"}}>{fmt(l.annualRevenue)}</div><div style={{fontSize:10,color:"#475569"}}>{l.county}</div></div>
+                        </div>
+                      );})}
+                    </div>
+                  )}
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
+                  <div style={S.card}>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}><span style={{fontSize:13,fontWeight:700,color:"#0f172a"}}>💎 Top Opportunities</span><span style={{fontSize:10,color:"#475569"}}>by deal value</span></div>
+                    {topOps.length?topOps.map((l,i)=>(<div key={l.id} onClick={()=>{setSelLead(l);setTab("leads");}} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0",borderBottom:i<topOps.length-1?`1px solid ${BDR}`:"none",cursor:"pointer"}}><span style={{fontSize:11,color:"#64748b",fontWeight:700,width:18}}>#{i+1}</span><Av name={l.company} sz={26}/><div style={{flex:1,minWidth:0}}><div style={{fontSize:12,fontWeight:600,color:"#0f172a",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.company}</div><div style={{display:"flex",alignItems:"center",gap:6}}><Tag bg={SB[l.stage]} col={SC[l.stage]}>{l.stage}</Tag><span style={{fontSize:10,color:"#64748b"}}>{Math.round((STAGE_PROB[l.stage]||0))}% likely</span></div></div><div style={{fontSize:13,fontWeight:700,color:"#4ade80",flexShrink:0}}>{fmt(l.annualRevenue)}</div></div>)):<div style={{color:"#475569",fontSize:12,textAlign:"center",padding:20}}>No active deals yet</div>}
+                  </div>
+                  <div style={S.card}>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}><span style={{fontSize:13,fontWeight:700,color:"#0f172a"}}>📊 This Week's Activity</span><span style={{fontSize:10,color:"#475569"}}>last 7 days</span></div>
+                    {weekActs.length?(
+                      <div>
+                        <div style={{display:"grid",gridTemplateColumns:"repeat(4, 1fr)",gap:6,marginBottom:10}}>{ATYPES.slice(0,4).map(t=>(<div key={t} style={{background:BG,border:`1px solid ${BDR}`,borderRadius:7,padding:"7px 8px",textAlign:"center"}}><div style={{fontSize:16,marginBottom:2}}>{AICO[t]}</div><div style={{fontSize:16,fontWeight:700,color:weekByType[t]?"#4ade80":"#334155"}}>{weekByType[t]||0}</div><div style={{fontSize:9,color:"#64748b",textTransform:"capitalize"}}>{t}s</div></div>))}</div>
+                        <div style={{fontSize:11,color:"#64748b",marginBottom:6,fontWeight:600}}>Recent</div>
+                        {weekActs.slice(0,4).map(a=>(<div key={a.id} style={{display:"flex",alignItems:"center",gap:8,padding:"5px 0",fontSize:11}}><span>{AICO[a.type]||"📌"}</span><span style={{color:"#0f172a",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{a.company}</span><span style={{color:"#475569",fontSize:10}}>{a.date}</span></div>))}
+                      </div>
+                    ):(
+                      <div style={{textAlign:"center",padding:30,color:"#475569"}}><div style={{fontSize:28,marginBottom:6}}>📞</div><div style={{fontSize:12}}>No activity logged this week</div></div>
+                    )}
+                  </div>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                  <div style={S.card}>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}><span style={{fontSize:13,fontWeight:700,color:"#0f172a"}}>📊 Pipeline Funnel</span></div>
+                    {(()=>{const stageCounts={};const stageValues={};for(const s of STAGES){if(s!=="Closed Lost"){const arr=stageBuckets[s]||[];stageCounts[s]=arr.length;stageValues[s]=arr.reduce((sum,l)=>sum+(l.annualRevenue||0),0);}}const maxN=Math.max(...Object.values(stageCounts))||1;return STAGES.filter(s=>s!=="Closed Lost").map(s=>{const n=stageCounts[s];const v=stageValues[s];const w=Math.round(n/maxN*100);return(<div key={s} style={{marginBottom:8}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}><span style={{fontSize:11,color:"#64748b"}}>{s}</span><span style={{fontSize:11,color:"#64748b"}}>{n} · <span style={{color:SC[s],fontWeight:600}}>{fmt(v)}</span></span></div><div style={{height:18,background:"#e5e7eb",borderRadius:4,overflow:"hidden",position:"relative"}}><div style={{height:"100%",width:`${Math.max(w,3)}%`,background:`linear-gradient(90deg,${SC[s]}66,${SC[s]})`,borderRadius:4}}/>{n>0&&<span style={{position:"absolute",left:8,top:0,height:18,display:"flex",alignItems:"center",fontSize:10,color:"#0f172a",fontWeight:600}}>{n}</span>}</div></div>);});})()}
+                  </div>
+                  <div style={S.card}>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}><span style={{fontSize:13,fontWeight:700,color:stale.length?"#f87171":"#fff"}}>🚨 Stale Deals</span><span style={{fontSize:10,color:"#475569"}}>{stale.length} need follow-up</span></div>
+                    {stale.length?stale.slice(0,5).map(l=>{const days=daysSince(lastActDate(l));return(<div key={l.id} onClick={()=>{setSelLead(l);setTab("leads");}} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0",borderBottom:`1px solid ${BDR}`,cursor:"pointer"}}><div style={{fontSize:18}}>⏰</div><div style={{flex:1,minWidth:0}}><div style={{fontSize:12,fontWeight:600,color:"#0f172a",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.company}</div><div style={{display:"flex",alignItems:"center",gap:6}}><Tag bg={SB[l.stage]} col={SC[l.stage]}>{l.stage}</Tag><span style={{fontSize:10,color:"#f87171",fontWeight:600}}>{days}d cold</span></div></div><div style={{fontSize:12,fontWeight:700,color:"#fbbf24",flexShrink:0}}>{fmt(l.annualRevenue)}</div></div>);}):(
+                      <div style={{textAlign:"center",padding:30,color:"#475569"}}><div style={{fontSize:28,marginBottom:6}}>🎉</div><div style={{fontSize:12,color:"#4ade80"}}>All deals are up to date!</div></div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* LEADS — with bulk selection */}
+            {tab==="targets"&&(()=>{
+              // ── Compute date range based on period selector ──
+              const today=new Date();today.setHours(0,0,0,0);
+              const startOfDay=d=>{const x=new Date(d);x.setHours(0,0,0,0);return x;};
+              const endOfDay=d=>{const x=new Date(d);x.setHours(23,59,59,999);return x;};
+              let rangeFrom,rangeTo,rangeLabel;
+              if(targetPeriod==="today"){rangeFrom=startOfDay(today);rangeTo=endOfDay(today);rangeLabel="Today";}
+              else if(targetPeriod==="week"){const d=new Date(today);const day=d.getDay()||7;d.setDate(d.getDate()-day+1);rangeFrom=startOfDay(d);rangeTo=endOfDay(today);rangeLabel="This Week";}
+              else if(targetPeriod==="month"){rangeFrom=new Date(today.getFullYear(),today.getMonth(),1);rangeTo=endOfDay(today);rangeLabel=today.toLocaleString("en-IE",{month:"long",year:"numeric"});}
+              else if(targetPeriod==="quarter"){const q=Math.floor(today.getMonth()/3);rangeFrom=new Date(today.getFullYear(),q*3,1);rangeTo=endOfDay(today);rangeLabel=`Q${q+1} ${today.getFullYear()}`;}
+              else if(targetPeriod==="custom"&&targetCustomFrom&&targetCustomTo){rangeFrom=startOfDay(new Date(targetCustomFrom));rangeTo=endOfDay(new Date(targetCustomTo));rangeLabel=`${targetCustomFrom} → ${targetCustomTo}`;}
+              else{rangeFrom=new Date(today.getFullYear(),today.getMonth(),1);rangeTo=endOfDay(today);rangeLabel="This Month";}
+
+              // ── Collect all processed products in range ──
+              const processedInRange=[];
+              const pendingProducts=[];
+              for(const l of leads){
+                for(const p of(l.products||[])){
+                  const item={...p,leadId:l.id,company:l.company,stage:l.stage};
+                  if(p.status==="processed"&&p.processedDate){
+                    const d=new Date(p.processedDate);
+                    if(d>=rangeFrom&&d<=rangeTo)processedInRange.push(item);
+                  } else if(p.status==="pending"||!p.status){
+                    pendingProducts.push(item);
+                  }
+                }
+              }
+
+              // Scale target visits to the period (e.g. monthly target = full, weekly = /4)
+              // Scale target based on period — using daily target * working days in range
+              let scaledTargetVisits;
+              if(targetPeriod==="today")scaledTargetVisits=dailyTarget;
+              else if(targetPeriod==="week")scaledTargetVisits=dailyTarget*5;
+              else if(targetPeriod==="month")scaledTargetVisits=dailyTarget*workDays;
+              else if(targetPeriod==="quarter")scaledTargetVisits=dailyTarget*workDays*3;
+              else if(targetPeriod==="custom"&&targetCustomFrom&&targetCustomTo){
+                // Count weekdays between custom dates
+                let days=0;const start=new Date(targetCustomFrom);const end=new Date(targetCustomTo);
+                for(let d=new Date(start);d<=end;d.setDate(d.getDate()+1)){const dow=d.getDay();if(dow!==0&&dow!==6)days++;}
+                scaledTargetVisits=dailyTarget*Math.max(1,days);
+              }
+              else scaledTargetVisits=dailyTarget*workDays;
+              scaledTargetVisits=Math.max(1,scaledTargetVisits);
+              const earnings=calcEarnings(processedInRange,scaledTargetVisits);
+              const pendingEarnings=calcEarnings([...processedInRange,...pendingProducts],scaledTargetVisits);
+
+              // Group by product type
+              const byType={};
+              for(const t of PRODUCT_LIST)byType[t]={processed:0,pending:0};
+              for(const p of processedInRange)byType[p.type]&&(byType[p.type].processed+=(p.quantity||1));
+              for(const p of pendingProducts)byType[p.type]&&(byType[p.type].pending+=(p.quantity||1));
+
+              const t1=BROADBAND_TIERS[0]; // 130% tier ref for max bar
+              const bbPct=Math.min(150,(earnings.bbRatio||0)*100);
+
+              return(
+                <div style={{padding:"24px 28px",overflowY:"auto",height:"100%"}}>
+                  {/* Header */}
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:22,flexWrap:"wrap",gap:14}}>
+                    <div>
+                      <h1 style={{fontSize:24,fontWeight:700,color:T1,letterSpacing:-.5,marginBottom:3}}>🎯 Bonus & Targets</h1>
+                      <div style={{fontSize:12,color:T2}}>SMB FOTS — <strong style={{color:T1}}>{rangeLabel}</strong></div>
+                    </div>
+                    {/* Period selector */}
+                    <div style={{display:"flex",gap:5,padding:3,background:BG,border:`1px solid ${BDR}`,borderRadius:9}}>
+                      {[["today","Today"],["week","Week"],["month","Month"],["quarter","Quarter"],["custom","Custom"]].map(([v,l])=>(
+                        <div key={v} onClick={()=>setTargetPeriod(v)} style={{padding:"6px 14px",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600,background:targetPeriod===v?"#ffffff":"transparent",color:targetPeriod===v?"#10b981":T2,boxShadow:targetPeriod===v?"0 1px 2px rgba(15,23,42,0.06)":"none"}}>{l}</div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {targetPeriod==="custom"&&(
+                    <div style={{display:"flex",gap:9,alignItems:"center",marginBottom:20,padding:"10px 14px",background:"#ffffff",border:`1px solid ${BDR}`,borderRadius:9}}>
+                      <span style={{fontSize:11,color:T2,fontWeight:600}}>FROM</span>
+                      <input type="date" style={{...S.inp,width:160}} value={targetCustomFrom} onChange={e=>setTargetCustomFrom(e.target.value)}/>
+                      <span style={{fontSize:11,color:T2,fontWeight:600}}>TO</span>
+                      <input type="date" style={{...S.inp,width:160}} value={targetCustomTo} onChange={e=>setTargetCustomTo(e.target.value)}/>
+                    </div>
+                  )}
+
+                  {/* TOP STAT ROW */}
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:14,marginBottom:24}}>
+                    <div style={S.card}>
+                      <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between"}}>
+                        <div>
+                          <div style={{fontSize:11,color:T2,fontWeight:500,marginBottom:6}}>Total Earnings</div>
+                          <div style={{fontSize:24,fontWeight:700,color:T1,letterSpacing:-.5}}>€{Math.round(earnings.total).toLocaleString()}</div>
+                        </div>
+                        <div style={{width:36,height:36,background:"#dcfce7",borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>💰</div>
+                      </div>
+                      <div style={{fontSize:10,color:T2,marginTop:6}}>Broadband €{earnings.broadbandBonus.toLocaleString()} + Mobile €{Math.round(earnings.totalMobile).toLocaleString()}</div>
+                    </div>
+                    <div style={S.card}>
+                      <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between"}}>
+                        <div>
+                          <div style={{fontSize:11,color:T2,fontWeight:500,marginBottom:6}}>Broadband Tier</div>
+                          <div style={{fontSize:24,fontWeight:700,letterSpacing:-.5,color:earnings.broadbandTier.color}}>{earnings.broadbandTier.label}</div>
+                        </div>
+                        <div style={{width:36,height:36,background:"#dbeafe",borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>🌐</div>
+                      </div>
+                      <div style={{fontSize:10,color:T2,marginTop:6}}>{earnings.broadbandCount} processed / {scaledTargetVisits} target visits</div>
+                    </div>
+                    <div style={S.card}>
+                      <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between"}}>
+                        <div>
+                          <div style={{fontSize:11,color:T2,fontWeight:500,marginBottom:6}}>Mobile Payout</div>
+                          <div style={{fontSize:24,fontWeight:700,letterSpacing:-.5,color:earnings.mobileTier.color}}>{earnings.mobilePayoutPct}%</div>
+                        </div>
+                        <div style={{width:36,height:36,background:"#d1fae5",borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>📱</div>
+                      </div>
+                      <div style={{fontSize:10,color:T2,marginTop:6}}>{earnings.mobileCount} mob, {earnings.handsetCount} handset</div>
+                    </div>
+                    <div style={S.card}>
+                      <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between"}}>
+                        <div>
+                          <div style={{fontSize:11,color:T2,fontWeight:500,marginBottom:6}}>Projected Bonus (this {targetPeriod==="quarter"?"quarter":targetPeriod})</div>
+                          <div style={{fontSize:24,fontWeight:700,color:T1,letterSpacing:-.5}}>€{Math.round(pendingEarnings.total).toLocaleString()}</div>
+                        </div>
+                        <div style={{width:36,height:36,background:"#fef3c7",borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>📈</div>
+                      </div>
+                      <div style={{fontSize:10,color:T2,marginTop:6}}>If all pending convert</div>
+                    </div>
+                  </div>
+
+                  {/* TWO COLUMN: Broadband + Mobile detail */}
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:24}}>
+                    {/* BROADBAND CARD */}
+                    <div style={S.card}>
+                      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+                        <h3 style={{fontSize:15,fontWeight:700,color:T1}}>🌐 Broadband Target</h3>
+                        <div style={{fontSize:11,color:T2}}>Target: <strong style={{color:T1}}>{scaledTargetVisits}</strong> visits</div>
+                      </div>
+                      {/* Progress bar with tier markers */}
+                      <div style={{position:"relative",height:30,background:"#f1f5f9",borderRadius:6,marginBottom:18}}>
+                        {/* Tier zone backgrounds */}
+                        {[[0,90,"#94a3b8"],[90,100,"#f59e0b"],[100,110,"#eab308"],[110,120,"#84cc16"],[120,130,"#22c55e"],[130,150,"#10b981"]].map(([from,to,c])=>(
+                          <div key={from} style={{position:"absolute",left:`${from/150*100}%`,width:`${(to-from)/150*100}%`,top:0,bottom:0,background:c+"15",borderRight:from===130?"none":`1px dashed ${c}33`}}/>
+                        ))}
+                        {/* Current progress */}
+                        <div style={{position:"absolute",left:0,top:0,height:"100%",width:`${Math.min(100,bbPct/150*100)}%`,background:`linear-gradient(90deg,${earnings.broadbandTier.color}aa,${earnings.broadbandTier.color})`,borderRadius:6,transition:"width 0.3s"}}/>
+                        {/* Current value pin */}
+                        <div style={{position:"absolute",left:`${Math.min(100,bbPct/150*100)}%`,top:-3,height:36,width:2,background:T1,transform:"translateX(-50%)"}}/>
+                        <div style={{position:"absolute",left:`${Math.min(95,bbPct/150*100)}%`,top:-22,fontSize:11,fontWeight:700,color:earnings.broadbandTier.color,transform:"translateX(-50%)",whiteSpace:"nowrap"}}>{Math.round(bbPct)}%</div>
+                      </div>
+                      {/* Tier labels */}
+                      <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:T2,marginBottom:14,marginTop:-8}}>
+                        <span>0%</span><span>90%</span><span>100%</span><span>110%</span><span>120%</span><span>130%+</span>
+                      </div>
+                      {/* Bonus table */}
+                      <div style={{background:BG,border:`1px solid ${BDR}`,borderRadius:7,overflow:"hidden",marginBottom:11}}>
+                        {BROADBAND_TIERS.slice(0,5).map((t,i)=>{
+                          const isCurrent=t.threshold===earnings.broadbandTier.threshold;
+                          return(
+                            <div key={t.label} style={{display:"grid",gridTemplateColumns:"60px 60px 80px 80px 1fr",padding:"6px 11px",fontSize:11,background:isCurrent?t.color+"15":"transparent",borderBottom:i<4?`1px solid ${BDR}`:"none",fontWeight:isCurrent?700:400,color:isCurrent?t.color:T2}}>
+                              <span>{isCurrent?"▶ ":""}{t.label}</span>
+                              <span>{t.threshold.toFixed(1)} avg</span>
+                              <span>€{t.perVisit}/visit</span>
+                              <span>€{t.monthly.toLocaleString()}/mo</span>
+                              <span>€{t.yearly.toLocaleString()}/yr</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {/* Per-product processed counts */}
+                      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                        {["FTTH","FTTC","NBI","5G POD"].map(p=>(
+                          <div key={p} style={{flex:"1 1 80px",padding:"6px 9px",background:PRODUCTS[p].color+"15",border:`1px solid ${PRODUCTS[p].color}44`,borderRadius:6,textAlign:"center"}}>
+                            <div style={{fontSize:9,color:PRODUCTS[p].color,fontWeight:600}}>{p}</div>
+                            <div style={{fontSize:16,fontWeight:700,color:T1}}>{byType[p].processed}</div>
+                            {byType[p].pending>0&&<div style={{fontSize:9,color:T3}}>+{byType[p].pending} pending</div>}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* MOBILE CARD — DUAL PATH */}
+                    <div style={S.card}>
+                      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:11}}>
+                        <h3 style={{fontSize:15,fontWeight:700,color:T1}}>📱 Mobile Target</h3>
+                        <div style={{fontSize:10,color:T2,fontWeight:600,padding:"3px 8px",background:earnings.mobilePayoutPct===100?"#dcfce7":earnings.mobilePayoutPct===50?"#fef3c7":"#f1f5f9",color:earnings.mobilePayoutPct===100?"#15803d":earnings.mobilePayoutPct===50?"#92400e":T2,borderRadius:10}}>{earnings.mobilePayoutPct}% payout — {earnings.mobileTier.label}</div>
+                      </div>
+                      <div style={{fontSize:11,color:T2,marginBottom:11,fontStyle:"italic"}}>Two ways to hit 100% — whichever you reach first</div>
+
+                      {/* ── PATH A ── */}
+                      {(()=>{
+                        const productsRemaining=Math.max(0,15-earnings.mobileCount);
+                        const handsetsRemaining=Math.max(0,2-earnings.handsetCount);
+                        const pathADone=earnings.mobileCount>=15&&earnings.handsetCount>=2;
+                        const pathAColor=pathADone?"#10b981":"#3b82f6";
+                        return(
+                          <div style={{padding:"11px 13px",background:pathADone?"#ecfdf5":"#eff6ff",border:`1.5px solid ${pathADone?"#86efac":"#bfdbfe"}`,borderRadius:8,marginBottom:9}}>
+                            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                              <div style={{fontSize:11,fontWeight:700,color:pathAColor,letterSpacing:.3}}>PATH A · 15+ PRODUCTS + 2+ HANDSETS</div>
+                              {pathADone&&<div style={{fontSize:10,fontWeight:700,color:"#15803d",padding:"2px 8px",background:"#dcfce7",borderRadius:9}}>✓ HIT</div>}
+                            </div>
+                            {/* Products counter */}
+                            <div style={{marginBottom:7}}>
+                              <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:T2,marginBottom:2,fontWeight:500}}>
+                                <span>Total mobile products</span>
+                                <strong style={{color:T1}}>{earnings.mobileCount} / 15</strong>
+                              </div>
+                              <div style={{height:8,background:"#dbeafe",borderRadius:4,overflow:"hidden"}}>
+                                <div style={{height:"100%",width:`${Math.min(100,earnings.mobileCount/15*100)}%`,background:pathAColor,borderRadius:4,transition:"width 0.3s"}}/>
+                              </div>
+                            </div>
+                            {/* Handsets counter */}
+                            <div>
+                              <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:T2,marginBottom:2,fontWeight:500}}>
+                                <span>Handsets (min 2)</span>
+                                <strong style={{color:T1}}>{earnings.handsetCount} / 2</strong>
+                              </div>
+                              <div style={{height:8,background:"#dbeafe",borderRadius:4,overflow:"hidden"}}>
+                                <div style={{height:"100%",width:`${Math.min(100,earnings.handsetCount/2*100)}%`,background:pathAColor,borderRadius:4,transition:"width 0.3s"}}/>
+                              </div>
+                            </div>
+                            {!pathADone&&(
+                              <div style={{marginTop:6,fontSize:10,color:T2,fontWeight:500}}>
+                                {productsRemaining>0&&<span>Need <strong style={{color:pathAColor}}>{productsRemaining}</strong> more products</span>}
+                                {productsRemaining>0&&handsetsRemaining>0&&<span> · </span>}
+                                {handsetsRemaining>0&&<span style={{color:"#dc2626",fontWeight:700}}>Need {handsetsRemaining} more handset{handsetsRemaining===1?"":"s"}</span>}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+
+                      {/* ── PATH B ── */}
+                      {(()=>{
+                        const simosRemaining=Math.max(0,20-earnings.simoCount);
+                        const pathBDone=earnings.simoCount>=20;
+                        const pathBColor=pathBDone?"#10b981":"#a855f7";
+                        return(
+                          <div style={{padding:"11px 13px",background:pathBDone?"#ecfdf5":"#faf5ff",border:`1.5px solid ${pathBDone?"#86efac":"#e9d5ff"}`,borderRadius:8,marginBottom:11}}>
+                            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                              <div style={{fontSize:11,fontWeight:700,color:pathBColor,letterSpacing:.3}}>PATH B · 20+ SIMOs (NO HANDSET NEEDED)</div>
+                              {pathBDone&&<div style={{fontSize:10,fontWeight:700,color:"#15803d",padding:"2px 8px",background:"#dcfce7",borderRadius:9}}>✓ HIT</div>}
+                            </div>
+                            <div>
+                              <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:T2,marginBottom:2,fontWeight:500}}>
+                                <span>SIMO count</span>
+                                <strong style={{color:T1}}>{earnings.simoCount} / 20</strong>
+                              </div>
+                              <div style={{height:8,background:"#f3e8ff",borderRadius:4,overflow:"hidden"}}>
+                                <div style={{height:"100%",width:`${Math.min(100,earnings.simoCount/20*100)}%`,background:pathBColor,borderRadius:4,transition:"width 0.3s"}}/>
+                              </div>
+                            </div>
+                            {!pathBDone&&simosRemaining>0&&(
+                              <div style={{marginTop:6,fontSize:10,color:T2,fontWeight:500}}>
+                                Need <strong style={{color:pathBColor}}>{simosRemaining}</strong> more SIMOs to qualify via Path B
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+
+                      {/* Tier table */}
+                      <div style={{background:BG,border:`1px solid ${BDR}`,borderRadius:7,overflow:"hidden",marginBottom:11}}>
+                        {MOBILE_TIERS.map((t,i)=>{
+                          const isCurrent=earnings.mobileTier.label===t.label;
+                          return(
+                            <div key={t.label} style={{display:"grid",gridTemplateColumns:"34px 1fr 70px",padding:"6px 11px",fontSize:11,background:isCurrent?t.color+"15":"transparent",borderBottom:i<MOBILE_TIERS.length-1?`1px solid ${BDR}`:"none",fontWeight:isCurrent?700:500,color:isCurrent?t.color:T2,alignItems:"center"}}>
+                              <span style={{fontSize:9,fontWeight:700,padding:"1px 6px",borderRadius:8,background:t.path==="A"?"#dbeafe":t.path==="B"?"#f3e8ff":"#f1f5f9",color:t.path==="A"?"#1d4ed8":t.path==="B"?"#7c3aed":"#475569",textAlign:"center"}}>{t.path}</span>
+                              <span>{isCurrent?"▶ ":""}{t.label}</span>
+                              <span style={{textAlign:"right"}}>{t.payoutPct}% payout</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Earnings breakdown */}
+                      <div style={{padding:"9px 12px",background:"#f8fafc",border:`1px solid ${BDR}`,borderRadius:7,fontSize:11}}>
+                        <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}><span style={{color:T2}}>SIMO ({earnings.simoCount} × €{SIMO_RATE} × {earnings.mobilePayoutPct}%)</span><strong style={{color:T1}}>€{Math.round(earnings.simoEarnings).toLocaleString()}</strong></div>
+                        <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}><span style={{color:T2}}>Handset ({earnings.handsetCount} × €{HANDSET_RATE} × {earnings.mobilePayoutPct}%)</span><strong style={{color:T1}}>€{Math.round(earnings.handsetEarnings).toLocaleString()}</strong></div>
+                        <div style={{display:"flex",justifyContent:"space-between",borderTop:`1px solid ${BDR}`,paddingTop:5,marginTop:5}}><span style={{color:T1,fontWeight:600}}>Mobile Total</span><strong style={{color:"#10b981"}}>€{Math.round(earnings.totalMobile).toLocaleString()}</strong></div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* TARGET CONFIG — Daily target + working days */}
+                  <div style={{...S.card,marginBottom:14}}>
+                    <h3 style={{fontSize:13,fontWeight:700,color:T1,marginBottom:11}}>⚙️ Target Configuration</h3>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14,alignItems:"end"}}>
+                      <div>
+                        <label style={S.lbl}>Daily Broadband Target</label>
+                        <input type="number" min="0.1" max="10" step="0.5" value={dailyTarget} onChange={e=>saveDailyTarget(parseFloat(e.target.value)||1)} style={{...S.inp,fontSize:18,fontWeight:700,textAlign:"center"}}/>
+                        <div style={{fontSize:10,color:T2,marginTop:4}}>broadband per work day</div>
+                      </div>
+                      <div>
+                        <label style={S.lbl}>Working Days / Month</label>
+                        <input type="number" min="1" max="31" value={workDays} onChange={e=>saveWorkDays(parseInt(e.target.value)||20)} style={{...S.inp,fontSize:18,fontWeight:700,textAlign:"center"}}/>
+                        <div style={{fontSize:10,color:T2,marginTop:4}}>typically 20 (5 × 4 weeks)</div>
+                      </div>
+                      <div style={{padding:"11px 13px",background:"#ecfdf5",border:"1px solid #a7f3d0",borderRadius:8}}>
+                        <div style={{fontSize:10,color:"#065f46",fontWeight:600,marginBottom:3,letterSpacing:.3}}>MONTHLY TARGET</div>
+                        <div style={{fontSize:26,fontWeight:700,color:"#065f46"}}>{dailyTarget*workDays}</div>
+                        <div style={{fontSize:10,color:"#065f46",marginTop:2,opacity:.8}}>{dailyTarget} × {workDays} days</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* RECENT PROCESSED SALES */}
+                  <div style={S.card}>
+                    <h3 style={{fontSize:14,fontWeight:700,color:T1,marginBottom:11}}>🧾 Processed sales in {rangeLabel} ({processedInRange.length})</h3>
+                    {processedInRange.length===0?(
+                      <div style={{textAlign:"center",padding:25,color:T3,fontSize:12}}>No processed sales in this period.<br/><span style={{fontSize:10}}>Add products to a lead and mark them processed (the Leads tab).</span></div>
+                    ):(
+                      <div style={{maxHeight:300,overflowY:"auto"}}>
+                        {processedInRange.slice().sort((a,b)=>(b.processedDate||"").localeCompare(a.processedDate||"")).map((p,i)=>{
+                          const def=PRODUCTS[p.type]||{color:T3,icon:"📦"};
+                          return(
+                            <div key={i} onClick={()=>{const l=leads.find(x=>x.id===p.leadId);if(l){setSelLead(l);setTab("leads");}}} style={{display:"grid",gridTemplateColumns:"24px 1fr 100px 80px 90px",padding:"8px 11px",gap:8,borderBottom:`1px solid ${BDR}`,fontSize:12,cursor:"pointer",alignItems:"center"}}>
+                              <div style={{fontSize:14}}>{def.icon}</div>
+                              <div><strong style={{color:T1}}>{p.company}</strong></div>
+                              <div><span style={{background:def.color+"15",color:def.color,border:`1px solid ${def.color}44`,padding:"2px 8px",borderRadius:9,fontSize:10,fontWeight:600}}>{p.type} {p.quantity>1?"×"+p.quantity:""}</span></div>
+                              <div style={{color:T2,fontSize:11}}>{p.processedDate}</div>
+                              <div style={{textAlign:"right"}}><Tag bg={SB[p.stage]} col={SC[p.stage]}>{p.stage}</Tag></div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {tab==="leads"&&(
+              <div style={{display:"flex",height:"100%",overflow:"hidden",flex:1}}>
+                <div style={{flex:1,overflow:"auto",paddingRight:selLead?10:0}}>
+                  {/* Top filter row */}
+                  <div style={{display:"flex",gap:8,marginBottom:8,flexWrap:"wrap",alignItems:"center"}}>
+                    <input style={{...S.inp,flex:2,minWidth:200}} placeholder="🔍 Search by company, contact, email, industry..." value={searchInput} onChange={e=>setSearchInput(e.target.value)}/>
+                    <select style={S.sel} value={flt.stage} onChange={e=>setFlt(f=>({...f,stage:e.target.value}))}><option value="">All Stages</option>{STAGES.map(s=><option key={s}>{s}</option>)}</select>
+                    <select style={S.sel} value={flt.county} onChange={e=>setFlt(f=>({...f,county:e.target.value}))}><option value="">All Counties</option>{CNTS.map(c=><option key={c}>{c}</option>)}</select>
+                    {(flt.search||flt.stage||flt.industry||flt.county||flt.category||flt.subCategory||searchInput)&&<button style={S.x} onClick={()=>{setFlt({stage:"",industry:"",county:"",search:"",category:"",subCategory:"",tags:[],product:"",availability:""});setSearchInput("");}}>✕ Clear all</button>}
+                    {/* Select All / Deselect All */}
+                    <div style={{marginLeft:"auto",display:"flex",gap:6,alignItems:"center"}}>
+                      {bulkSel.size>0&&<span style={{fontSize:11,color:"#4ade80",fontWeight:700,whiteSpace:"nowrap"}}>{bulkSel.size} selected</span>}
+                      <button style={{...S.x,fontSize:11,padding:"5px 12px"}} title="See how your leads are auto-categorised" onClick={()=>{
+                        if(!leads.length){alert("No leads to analyse.");return;}
+                        const counts={};
+                        for(const l of leads){const c=catOf(l);counts[c.category]=(counts[c.category]||0)+1;}
+                        const sorted=Object.entries(counts).sort((a,b)=>b[1]-a[1]);
+                        const summary=sorted.map(([c,n])=>`${c}: ${n.toLocaleString()}`).join("\n");
+                        const otherPct=Math.round((counts["Other"]||0)/leads.length*100);
+                        alert(`📊 Auto-categorisation summary (${leads.length.toLocaleString()} leads):\n\n${summary}\n\nℹ️ Categories are computed automatically from each lead's industry + company name. No manual action needed.${otherPct>20?`\n\n⚠️ ${otherPct}% are "Other" — tell Claude which industries are missing.`:""}`);
+                      }}>🏷️ Category Summary</button>
+                      <button style={{...S.x,fontSize:11,padding:"5px 12px"}} title="Create and manage custom tags" onClick={()=>setShowTagsModal(true)}>
+                        🏷️ Tags <span style={{color:"#475569",marginLeft:3}}>({customTags.length})</span>
+                      </button>
+                      <button style={{...S.x,fontSize:11,padding:"5px 12px"}} onClick={bulkSel.size===vis.length&&vis.length>0?clearBulkSel:selAllVis}>
+                        {bulkSel.size===vis.length&&vis.length>0?"☐ Deselect All":"☑ Select All"}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* ── BULK ACTION BAR ──────────────────────────────────────── */}
+                  {bulkSel.size>0&&(
+                    <div style={{background:"#dcfce7",border:"1.5px solid #10b981",borderRadius:10,padding:"10px 14px",marginBottom:12,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                      <span style={{fontSize:12,fontWeight:700,color:"#4ade80",whiteSpace:"nowrap"}}>✓ {bulkSel.size} lead{bulkSel.size>1?"s":""} selected</span>
+                      <div style={{width:1,height:18,background:BDR}}/>
+                      {/* Stage change */}
+                      <select
+                        style={{...S.sel,fontSize:11,padding:"5px 10px",minWidth:140}}
+                        value={bulkStageVal}
+                        onChange={e=>{if(e.target.value){bulkStageChange(e.target.value);setBulkStageVal("");}}}
+                      >
+                        <option value="">📋 Move to stage...</option>
+                        {STAGES.map(s=><option key={s} value={s}>{s}</option>)}
+                      </select>
+                      {/* Priority change */}
+                      <select
+                        style={{...S.sel,fontSize:11,padding:"5px 10px",minWidth:140}}
+                        value={bulkPriVal}
+                        onChange={e=>{if(e.target.value){bulkPriorityChange(e.target.value);setBulkPriVal("");}}}
+                      >
+                        <option value="">🔺 Set priority...</option>
+                        {PRIS.map(p=><option key={p} value={p}>{p}</option>)}
+                      </select>
+                      <div style={{width:1,height:18,background:BDR}}/>
+                      <button
+                        style={{...S.x,fontSize:11,padding:"5px 12px",color:"#38bdf8",borderColor:"#38bdf844"}}
+                        onClick={bulkExportCSV}
+                        title="Export selected leads as CSV"
+                      >
+                        📥 Export CSV
+                      </button>
+                      {eProf.name&&(
+                        <button
+                          style={{...S.x,fontSize:11,padding:"5px 12px",color:"#a78bfa",borderColor:"#a78bfa44"}}
+                          onClick={bulkAssignSelf}
+                          title={`Assign contact to ${eProf.name}`}
+                        >
+                          👤 Assign to me
+                        </button>
+                      )}
+                      <button
+                        style={{...S.r,fontSize:11,padding:"5px 12px"}}
+                        onClick={bulkDeleteLeads}
+                        title="Permanently delete selected leads"
+                      >
+                        🗑 Delete
+                      </button>
+                      <button
+                        style={{...S.x,fontSize:11,padding:"5px 12px",marginLeft:"auto"}}
+                        onClick={clearBulkSel}
+                      >
+                        ✕ Clear
+                      </button>
+                    </div>
+                  )}
+
+                  {/* ── SAVED FILTERS BAR ── */}
+                  {(savedFilters.length>0||flt.stage||flt.category||flt.tags?.length||flt.county||flt.search||flt.industry)&&(
+                    <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:8,padding:"6px 10px",background:"rgba(167,139,250,0.04)",border:"1px solid #a78bfa22",borderRadius:7,alignItems:"center"}}>
+                      <span style={{fontSize:9,color:"#a78bfa",fontWeight:700,letterSpacing:.4,marginRight:3}}>📋 SAVED VIEWS:</span>
+                      {savedFilters.map(sf=>(
+                        <button key={sf.id} onClick={()=>{setFlt(sf.filter);setSearchInput(sf.filter.search||"");}} style={{padding:"3px 9px",borderRadius:10,border:"1px solid #a78bfa55",background:"rgba(167,139,250,0.10)",color:"#a78bfa",fontSize:10,fontWeight:600,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:4}} title={`Stage: ${sf.filter.stage||"any"} · Cat: ${sf.filter.category||"any"} · Tags: ${sf.filter.tags?.length||0}`}>
+                          {sf.name}
+                          <span onClick={e=>{e.stopPropagation();if(confirm(`Delete saved view "${sf.name}"?`))saveSavedFilters(savedFilters.filter(x=>x.id!==sf.id));}} style={{color:"#f87171",marginLeft:3}} title="Delete saved view">×</span>
+                        </button>
+                      ))}
+                      {(flt.stage||flt.category||flt.tags?.length||flt.county||flt.search||flt.industry||flt.subCategory)&&(
+                        <button onClick={()=>{const name=prompt("Name this saved view:");if(!name)return;saveSavedFilters([...savedFilters,{id:"sv"+Date.now(),name:name.trim(),filter:{...flt}}]);}} style={{padding:"3px 9px",borderRadius:10,border:"1px dashed #a78bfa66",background:"transparent",color:"#a78bfa",fontSize:10,fontWeight:600,cursor:"pointer"}}>+ Save current view</button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* ── CUSTOM TAG FILTER STRIP ── */}
+                  {customTags.length>0&&(()=>{
+                    // Counts per custom tag (respecting other filters except tags)
+                    const tagCounts={};
+                    for(const t of customTags)tagCounts[t.id]=0;
+                    for(const l of leads){
+                      if(flt.stage&&l.stage!==flt.stage)continue;
+                      if(flt.county&&l.county!==flt.county)continue;
+                      if(flt.category){const c=catOf(l);if(c.category!==flt.category)continue;if(flt.subCategory&&c.subCategory!==flt.subCategory)continue;}
+                      for(const tid of (l.tags||[])){if(tagCounts[tid]!==undefined)tagCounts[tid]++;}
+                    }
+                    return(
+                      <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:8,padding:"7px 10px",background:"rgba(244,114,182,0.04)",border:"1px solid #f472b622",borderRadius:7,alignItems:"center"}}>
+                        <span style={{fontSize:9,color:"#f472b6",fontWeight:700,letterSpacing:.4,marginRight:3}}>🏷️ FILTER BY TAG:</span>
+                        {customTags.map(t=>{
+                          const isActive=(flt.tags||[]).includes(t.id);
+                          const count=tagCounts[t.id]||0;
+                          return(
+                            <button key={t.id} onClick={()=>{const cur=flt.tags||[];const next=isActive?cur.filter(x=>x!==t.id):[...cur,t.id];setFlt(f=>({...f,tags:next}));}} style={{padding:"3px 10px",borderRadius:11,border:`1px solid ${isActive?t.color:t.color+"55"}`,background:isActive?t.color+"33":"transparent",color:isActive?"#fff":t.color,fontSize:10,fontWeight:600,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:5,opacity:count===0?0.4:1}}>
+                              <span style={{width:7,height:7,borderRadius:"50%",background:t.color,display:"inline-block"}}/>
+                              {t.name} <span style={{color:isActive?"#fff":"#64748b",opacity:.8}}>· {count.toLocaleString()}</span>
+                            </button>
+                          );
+                        })}
+                        {flt.tags?.length>0&&<button onClick={()=>setFlt(f=>({...f,tags:[]}))} style={{padding:"3px 8px",borderRadius:5,border:"1px solid #64748b",background:"transparent",color:"#64748b",fontSize:10,cursor:"pointer",marginLeft:4}}>✕ Clear tags</button>}
+                        <span style={{fontSize:9,color:"#475569",marginLeft:"auto"}}>Multi-select · ANY-of-match</span>
+                      </div>
+                    );
+                  })()}
+
+                  {/* ── AVAILABILITY FILTER STRIP — what's available at the lead's address ── */}
+                  {(()=>{
+                    // Count leads qualified for each product
+                    const availCounts={};
+                    for(const p of PRODUCT_LIST)availCounts[p]=0;
+                    for(const l of leads){
+                      if(flt.stage&&l.stage!==flt.stage)continue;
+                      if(flt.county&&l.county!==flt.county)continue;
+                      for(const p of (l.availability||[]))if(availCounts[p]!==undefined)availCounts[p]++;
+                    }
+                    const hasAny=PRODUCT_LIST.some(p=>availCounts[p]>0);
+                    if(!hasAny&&!flt.availability)return null;
+                    return(
+                      <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:8,padding:"7px 10px",background:"#ecfdf5",border:"1px solid #a7f3d0",borderRadius:7,alignItems:"center"}}>
+                        <span style={{fontSize:9,color:"#065f46",fontWeight:700,letterSpacing:.4,marginRight:3}}>📡 AVAILABLE AT ADDRESS:</span>
+                        {PRODUCT_CATEGORIES.map(cat=>{
+                          const inCat=PRODUCT_LIST.filter(p=>PRODUCTS[p].category===cat&&availCounts[p]>0);
+                          if(!inCat.length)return null;
+                          return(
+                            <div key={cat} style={{display:"flex",gap:4,paddingRight:8,borderRight:`1px solid ${BDR}`}}>
+                              {inCat.map(p=>{
+                                const def=PRODUCTS[p];
+                                const isActive=flt.availability===p;
+                                const count=availCounts[p];
+                                return(
+                                  <button key={p} onClick={()=>setFlt(f=>({...f,availability:isActive?"":p}))} style={{padding:"3px 9px",borderRadius:10,border:`1px solid ${isActive?def.color:def.color+"55"}`,background:isActive?def.color+"33":"transparent",color:isActive?"#ffffff":def.color,fontSize:10,fontWeight:600,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:3}}>
+                                    {def.icon} {p}<span style={{color:isActive?"#ffffff":"#475569",opacity:.8,marginLeft:2}}>· {count}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          );
+                        })}
+                        {flt.availability&&<button onClick={()=>setFlt(f=>({...f,availability:""}))} style={{padding:"3px 8px",borderRadius:5,border:"1px solid #64748b",background:"transparent",color:"#475569",fontSize:10,cursor:"pointer"}}>✕ Clear</button>}
+                      </div>
+                    );
+                  })()}
+
+                  {/* ── PRODUCT FILTER STRIP — eir products sold ── */}
+                  {(()=>{
+                    // Count leads per product type (respecting other filters)
+                    const productCounts={};
+                    for(const p of PRODUCT_LIST)productCounts[p]=0;
+                    for(const l of leads){
+                      if(flt.stage&&l.stage!==flt.stage)continue;
+                      if(flt.county&&l.county!==flt.county)continue;
+                      const seen=new Set();
+                      for(const pr of (l.products||[]))if(!seen.has(pr.type)){seen.add(pr.type);if(productCounts[pr.type]!==undefined)productCounts[pr.type]++;}
+                    }
+                    const hasAny=PRODUCT_LIST.some(p=>productCounts[p]>0);
+                    if(!hasAny&&!flt.product)return null;
+                    return(
+                      <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:8,padding:"7px 10px",background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:7,alignItems:"center"}}>
+                        <span style={{fontSize:9,color:"#1d4ed8",fontWeight:700,letterSpacing:.4,marginRight:3}}>📦 FILTER BY PRODUCT:</span>
+                        {PRODUCT_CATEGORIES.map(cat=>{
+                          const inCat=PRODUCT_LIST.filter(p=>PRODUCTS[p].category===cat&&productCounts[p]>0);
+                          if(!inCat.length)return null;
+                          return(
+                            <div key={cat} style={{display:"flex",gap:4,paddingRight:8,borderRight:`1px solid ${BDR}`}}>
+                              {inCat.map(p=>{
+                                const def=PRODUCTS[p];
+                                const isActive=flt.product===p;
+                                const count=productCounts[p];
+                                return(
+                                  <button key={p} onClick={()=>setFlt(f=>({...f,product:isActive?"":p}))} style={{padding:"3px 9px",borderRadius:10,border:`1px solid ${isActive?def.color:def.color+"55"}`,background:isActive?def.color+"33":"transparent",color:isActive?"#ffffff":def.color,fontSize:10,fontWeight:600,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:3}}>
+                                    {def.icon} {p}<span style={{color:isActive?"#ffffff":"#64748b",opacity:.8,marginLeft:2}}>· {count}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          );
+                        })}
+                        {flt.product&&<button onClick={()=>setFlt(f=>({...f,product:""}))} style={{padding:"3px 8px",borderRadius:5,border:"1px solid #64748b",background:"transparent",color:"#64748b",fontSize:10,cursor:"pointer"}}>✕ Clear</button>}
+                      </div>
+                    );
+                  })()}
+
+                  {/* Category chip strip — click to filter by category */}
+                  <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:8,padding:"7px 10px",background:BG,border:`1px solid ${BDR}`,borderRadius:7,alignItems:"center"}}>
+                    <span style={{fontSize:9,color:"#334155",fontWeight:700,letterSpacing:.4,marginRight:3,fontSize:9}}>FILTER BY CATEGORY:</span>
+                    {(()=>{
+                      // Count categories in CURRENT vis (after stage/county/search filters)
+                      const counts={};
+                      for(const c of Object.keys(CATEGORIES))counts[c]=0;
+                      // Use leads filtered by everything EXCEPT category
+                      const baseFiltered=leads.filter(l=>{
+                        if(flt.stage&&l.stage!==flt.stage)return false;
+                        if(flt.county&&l.county!==flt.county)return false;
+                        if(flt.search){const q=flt.search.toLowerCase();if(!`${l.company} ${l.contact||""} ${l.email||""} ${l.industry||""}`.toLowerCase().includes(q))return false;}
+                        return true;
+                      });
+                      for(const l of baseFiltered){const c=catOf(l);if(counts[c.category]!==undefined)counts[c.category]++;}
+                      return Object.entries(counts).sort((a,b)=>b[1]-a[1]).filter(([,n])=>n>0).map(([cat,n])=>{
+                        const isActive=flt.category===cat;
+                        const color=CATEGORIES[cat]?.color||"#94a3b8";
+                        return(
+                          <button key={cat} onClick={()=>setFlt(f=>({...f,category:isActive?"":cat,subCategory:""}))} style={{padding:"3px 10px",borderRadius:11,border:`1px solid ${isActive?color:color+"55"}`,background:isActive?color+"33":"transparent",color:isActive?"#fff":color,fontSize:10,fontWeight:600,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:5}}>
+                            <span style={{width:7,height:7,borderRadius:"50%",background:color,display:"inline-block"}}/>
+                            {cat} <span style={{color:isActive?"#fff":"#64748b",opacity:.8}}>· {n.toLocaleString()}</span>
+                          </button>
+                        );
+                      });
+                    })()}
+                    {flt.category&&<button onClick={()=>setFlt(f=>({...f,category:"",subCategory:""}))} style={{padding:"3px 8px",borderRadius:5,border:"1px solid #64748b",background:"transparent",color:"#64748b",fontSize:10,cursor:"pointer",marginLeft:4}}>✕ Clear</button>}
+                  </div>
+
+                  {/* Sub-category chip strip — only shown when a category is selected */}
+                  {flt.category&&CATEGORIES[flt.category]&&(()=>{
+                    const subCounts={};
+                    for(const s of CATEGORIES[flt.category].subs)subCounts[s]=0;
+                    for(const l of leads){
+                      if(flt.stage&&l.stage!==flt.stage)continue;
+                      if(flt.county&&l.county!==flt.county)continue;
+                      if(flt.search){const q=flt.search.toLowerCase();if(!`${l.company} ${l.contact||""} ${l.email||""} ${l.industry||""}`.toLowerCase().includes(q))continue;}
+                      const c=catOf(l);
+                      if(c.category===flt.category&&subCounts[c.subCategory]!==undefined)subCounts[c.subCategory]++;
+                    }
+                    const subColor=CATEGORIES[flt.category].color;
+                    return(
+                      <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:8,padding:"6px 10px",background:subColor+"08",border:`1px solid ${subColor}33`,borderRadius:7,alignItems:"center"}}>
+                        <span style={{fontSize:9,color:subColor,fontWeight:700,letterSpacing:.4,marginRight:3}}>{flt.category.toUpperCase()} - SUB-CATEGORIES:</span>
+                        {Object.entries(subCounts).sort((a,b)=>b[1]-a[1]).filter(([,n])=>n>0).map(([sub,n])=>{
+                          const isActive=flt.subCategory===sub;
+                          return(
+                            <button key={sub} onClick={()=>setFlt(f=>({...f,subCategory:isActive?"":sub}))} style={{padding:"2px 9px",borderRadius:10,border:`1px solid ${isActive?subColor:subColor+"33"}`,background:isActive?subColor+"33":"transparent",color:isActive?"#fff":subColor,fontSize:10,fontWeight:600,cursor:"pointer"}}>
+                              {sub} <span style={{opacity:.7}}>· {n}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+
+                  <div style={{fontSize:11,color:"#475569",marginBottom:7,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                    <span>Showing <strong style={{color:"#64748b"}}>{Math.min(visPage.length,vis.length)}</strong> of <strong style={{color:"#64748b"}}>{vis.length}</strong> leads{vis.length!==leads.length?` (filtered from ${leads.length.toLocaleString()})`:""}</span>
+                  </div>
+                  {visPage.map(l=>(
+                    <div key={l.id} onClick={()=>setSelLead(selLead?.id===l.id?null:l)} style={{...S.card,marginBottom:8,cursor:"pointer",borderColor:selLead?.id===l.id?"#4ade80":bulkSel.has(l.id)?"#38bdf8":BDR,padding:"11px 15px",borderLeft:`3px solid ${bulkSel.has(l.id)?"#38bdf8":selLead?.id===l.id?"#4ade80":BDR}`}}>
+                      <div style={{display:"flex",alignItems:"center",gap:10}}>
+                        {/* ── CHECKBOX ── */}
+                        <Checkbox checked={bulkSel.has(l.id)} onChange={()=>toggleBulkSel(l.id)}/>
+                        <Av name={l.company}/>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:3,flexWrap:"wrap"}}>
+                            <span style={{fontWeight:700,color:"#0f172a",fontSize:13}}>{l.company}</span>
+                            <Tag bg={SB[l.stage]} col={SC[l.stage]}>{l.stage}</Tag>
+                            <Tag bg={PCOL[l.priority]+"15"} col={PCOL[l.priority]}>{l.priority}</Tag>
+                            {(()=>{
+                              const c=catOf(l);
+                              const isOverride=l.categoryOverride&&l.categoryOverride===c.category;
+                              return(
+                                <span onClick={e=>{
+                                  e.stopPropagation();
+                                  const opts=CAT_ORDER.map((cat,i)=>`${i+1}. ${cat}`).join("\n");
+                                  const choice=prompt(`Set category for "${l.company}":\n\nCurrent: ${c.category}${isOverride?" (manual override)":" (auto)"}\n\n${opts}\n\nType the number, or 0 to clear override (use auto-categorization)`);
+                                  if(choice===null)return;
+                                  const num=parseInt(choice);
+                                  if(num===0){upd(l.id,{categoryOverride:null,subCategoryOverride:null});return;}
+                                  if(num>=1&&num<=CAT_ORDER.length){
+                                    const newCat=CAT_ORDER[num-1];
+                                    upd(l.id,{categoryOverride:newCat,subCategoryOverride:newCat});
+                                  }
+                                }} style={{cursor:"pointer"}} title={isOverride?"Manually overridden — click to change":"Auto-categorized — click to override"}>
+                                  <Tag bg={CATEGORIES[c.category].color+"15"} col={CATEGORIES[c.category].color}>
+                                    {isOverride?"📌 ":""}{c.category}
+                                  </Tag>
+                                </span>
+                              );
+                            })()}
+                            {/* Custom tag chips */}
+                            {(l.tags||[]).map(tagId=>{const t=customTags.find(x=>x.id===tagId);return t?<span key={tagId} style={{background:t.color+"22",border:`1px solid ${t.color}66`,color:t.color,padding:"1px 7px",borderRadius:9,fontSize:9,fontWeight:600,whiteSpace:"nowrap"}}>{t.name}</span>:null;})}
+                            {/* +Tags button — opens the tag picker for this lead */}
+                            <span onClick={e=>{e.stopPropagation();setEditTagsLead(l);}} style={{cursor:"pointer",fontSize:10,color:"#475569",border:`1px dashed ${BDR}`,borderRadius:9,padding:"1px 7px",fontWeight:600}} title="Add or edit custom tags">+ Tag</span>
+                            {/* Business type + compliance badge */}
+                            {l.businessType&&BUSINESS_TYPES[l.businessType]&&(()=>{
+                              const def=BUSINESS_TYPES[l.businessType];
+                              const s=complianceStatus(l);
+                              const ready=s?.isReady;
+                              return(
+                                <span title={`${def.label} — ${s.requiredDone}/${s.requiredTotal} required items completed`} style={{display:"inline-flex",alignItems:"center",gap:3,background:ready?"#dcfce7":def.bgLight,color:ready?"#15803d":def.color,border:`1px solid ${ready?"#86efac":def.color+"55"}`,padding:"1px 7px",borderRadius:9,fontSize:9,fontWeight:600,whiteSpace:"nowrap"}}>
+                                  {def.icon} {def.label.split(" /")[0]} {ready?"✓":`${s.requiredDone}/${s.requiredTotal}`}
+                                </span>
+                              );
+                            })()}
+                            {/* Availability dots — qualified services */}
+                            {(l.availability||[]).length>0&&(
+                              <span title={`Available: ${(l.availability||[]).join(", ")}`} style={{display:"inline-flex",alignItems:"center",gap:2,padding:"1px 7px",borderRadius:9,background:"#ecfdf5",border:"1px solid #a7f3d0",fontSize:9,fontWeight:600,color:"#065f46"}}>
+                                📡
+                                {(l.availability||[]).slice(0,4).map((p,i)=>{const def=PRODUCTS[p];if(!def)return null;return(<span key={i} style={{width:7,height:7,borderRadius:"50%",background:def.color,display:"inline-block"}}/>);})}
+                                <span style={{marginLeft:2}}>{(l.availability||[]).length} avail</span>
+                              </span>
+                            )}
+                            {/* Product chips — eir products sold */}
+                            {(l.products||[]).map((p,i)=>{const def=PRODUCTS[p.type];if(!def)return null;const isProc=p.status==="processed";return(<span key={i} title={`${p.type} × ${p.quantity||1} · ${p.status||"pending"}`} style={{background:def.color+(isProc?"":"15"),color:isProc?"#ffffff":def.color,border:`1px solid ${def.color}${isProc?"":"44"}`,padding:"1px 7px",borderRadius:9,fontSize:9,fontWeight:600,whiteSpace:"nowrap",display:"inline-flex",alignItems:"center",gap:3}}>{def.icon} {p.type}{p.quantity>1?` ×${p.quantity}`:""}{isProc?" ✓":""}</span>);})}
+                            {l.lat&&<span style={{fontSize:10,color:"#4ade80"}}>📍</span>}
+                            {l.source==="places"&&<span style={{fontSize:10,color:"#38bdf8"}}>🔍</span>}
+                            {sent.some(e=>e.leadId===l.id)&&<span style={{fontSize:10,color:"#a78bfa"}}>✉️</span>}
+                          </div>
+                          <div style={{fontSize:12,color:"#64748b"}}>{l.contact||"—"} · {l.phone||"—"} · {l.county}</div>
+                        </div>
+                        <div style={{textAlign:"right",flexShrink:0}}>
+                          <div style={{fontSize:13,fontWeight:700,color:"#4ade80"}}>{fmt(l.annualRevenue)}</div>
+                          <div style={{marginTop:4,display:"flex",gap:5,justifyContent:"flex-end"}}>
+                            <span onClick={e=>{e.stopPropagation();setELead(l);setTab("email");setEView("compose");}} style={{fontSize:11,color:"#a78bfa",cursor:"pointer",background:"#ede9fe",padding:"2px 7px",borderRadius:5,border:"1px solid #a78bfa33"}}>✉️</span>
+                            {l.lat&&<span onClick={e=>{e.stopPropagation();setMapPin(l);if(l.lat)setMapCenter({lat:l.lat,lng:l.lng});setTab("map");}} style={{fontSize:11,color:"#15803d",cursor:"pointer",background:"#dcfce7",padding:"2px 7px",borderRadius:5,border:"1px solid #4ade8033"}}>📍</span>}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {!vis.length&&<div style={{textAlign:"center",padding:50,color:"#475569"}}><div style={{fontSize:36,marginBottom:10}}>🔍</div>No leads found</div>}
+                  {hasMorePages&&(
+                    <div style={{textAlign:"center",padding:"14px 0"}}>
+                      <button style={{...S.x,padding:"8px 24px",fontSize:12}} onClick={()=>setPage(p=>p+1)}>
+                        Load More ({(vis.length-visPage.length).toLocaleString()} remaining)
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <DetailPanel lead={selLead} onClose={()=>setSelLead(null)} upd={upd} geoOne={geoOne} mapKey={mapKey} leads={leads} setELead={setELead} setEView={setEView} setMapPin={p=>{setMapPin(p);if(p?.lat)setMapCenter({lat:p.lat,lng:p.lng});}} setTab={setTab}/>
+              </div>
+            )}
+
+            {/* PIPELINE */}
+            {tab==="pipeline"&&(
+              <div style={{display:"flex",flexDirection:"column",flex:1,overflow:"hidden",gap:10}}>
+                <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",flexShrink:0}}>
+                  <input style={{...S.inp,flex:1,minWidth:180,maxWidth:280}} placeholder="🔍 Search..." value={pSearch} onChange={e=>setPSearch(e.target.value)}/>
+                  <div style={{display:"flex",gap:5}}>
+                    <span style={{fontSize:11,color:"#475569",fontWeight:600,alignSelf:"center"}}>PRIORITY:</span>
+                    {["",...PRIS].map(p=>(<button key={p||"all"} onClick={()=>setPPriority(p)} style={{...S.x,fontSize:11,padding:"5px 11px",background:pPriority===p?(p?PCOL[p]+"22":"#1e3a5f"):"transparent",color:pPriority===p?(p?PCOL[p]:"#38bdf8"):"#94a3b8",border:`1px solid ${pPriority===p?(p?PCOL[p]:"#38bdf8"):BDR}`}}>{p||"All"}</button>))}
+                  </div>
+                  <div style={{display:"flex",gap:5,marginLeft:"auto"}}>
+                    {[["value","Value"],["activity","Last activity"],["priority","Priority"],["stale","Most stale"]].map(([v,lab])=>(<button key={v} onClick={()=>setPSort(v)} style={{...S.x,fontSize:11,padding:"5px 11px",background:pSort===v?"#1e3a5f":"transparent",color:pSort===v?"#38bdf8":"#94a3b8",border:`1px solid ${pSort===v?"#38bdf8":BDR}`}}>{lab}</button>))}
+                  </div>
+                </div>
+                <div style={{display:"flex",gap:10,overflowX:"auto",flex:1}}>
+                  {STAGES.map(stage=>{
+                    // Use pre-grouped leads by stage (single pass instead of N filter passes)
+                    let sl=stageBuckets[stage]||[];
+                    if(pSearch){const q=pSearch.toLowerCase();sl=sl.filter(l=>`${l.company} ${l.contact||""} ${l.county||""}`.toLowerCase().includes(q));}
+                    if(pPriority)sl=sl.filter(l=>l.priority===pPriority);
+                    sl=[...sl].sort((a,b)=>{
+                      if(pSort==="value")return(b.annualRevenue||0)-(a.annualRevenue||0);
+                      if(pSort==="activity"){const da=daysSince(lastActDate(a))??999,db=daysSince(lastActDate(b))??999;return da-db;}
+                      if(pSort==="priority")return(priWeight[b.priority]||0)-(priWeight[a.priority]||0);
+                      if(pSort==="stale"){const da=daysSince(lastActDate(a))??-1,db=daysSince(lastActDate(b))??-1;return db-da;}
+                      return 0;
+                    });
+                    const sv=sl.reduce((s,l)=>s+(l.annualRevenue||0),0);
+                    const sw=sv*(STAGE_PROB[stage]||0)/100;
+                    const slDisplay=sl.slice(0,100);
+                    const hasMore=sl.length>100;
+                    return(
+                      <div key={stage} style={{minWidth:230,width:230,flexShrink:0,display:"flex",flexDirection:"column",maxHeight:"100%"}}>
+                        <div style={{padding:"9px 12px",borderRadius:"8px 8px 0 0",background:SB[stage],border:`1px solid ${SC[stage]}44`,borderBottom:"none"}}>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3}}>
+                            <span style={{fontSize:12,fontWeight:700,color:SC[stage]}}>{stage}</span>
+                            <span style={{fontSize:10,background:SC[stage]+"33",color:SC[stage],borderRadius:10,padding:"1px 7px",fontWeight:600,border:`1px solid ${SC[stage]}44`}}>{sl.length}</span>
+                          </div>
+                          {sv>0&&(<div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginTop:3}}><div><div style={{fontSize:13,fontWeight:700,color:SC[stage]}}>{fmt(sv)}</div>{!["Closed Won","Closed Lost"].includes(stage)&&<div style={{fontSize:9,color:SC[stage]+"99"}}>{fmt(sw)} forecast</div>}</div>{!["Closed Won","Closed Lost"].includes(stage)&&<div style={{fontSize:9,color:SC[stage]+"77",fontWeight:600}}>{STAGE_PROB[stage]}% prob</div>}</div>)}
+                        </div>
+                        <div style={{flex:1,overflow:"auto",background:"#f1f5f9",border:`1px solid ${SC[stage]}22`,borderRadius:"0 0 8px 8px",padding:6}}>
+                          {slDisplay.map(l=>{const days=daysSince(lastActDate(l));const sCol=stalenessColor(days);return(
+                            <div key={l.id} onClick={()=>{setSelLead(l);setTab("leads");}} style={{background:SUR,border:`1px solid ${BDR}`,borderRadius:8,padding:"9px 10px",marginBottom:6,cursor:"pointer",borderLeft:`3px solid ${PCOL[l.priority]}`,borderTop:`2px solid ${SC[stage]}55`}}>
+                              <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:4,gap:5}}>
+                                <div style={{flex:1,minWidth:0}}><div style={{fontWeight:600,fontSize:12,color:"#0f172a",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.company}</div><div style={{fontSize:10,color:"#64748b",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.contact||"No contact"}</div></div>
+                                <div style={{textAlign:"right",flexShrink:0}}><div style={{fontSize:11,color:"#4ade80",fontWeight:700}}>{fmt(l.annualRevenue)}</div></div>
+                              </div>
+                              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:5,fontSize:10}}><span style={{color:"#475569"}}>📍 {l.county}</span><span style={{color:"#475569"}}>·</span><span style={{color:sCol,fontWeight:600,display:"flex",alignItems:"center",gap:3}}><span style={{width:6,height:6,borderRadius:"50%",background:sCol,display:"inline-block"}}/>{stalenessLabel(days)}</span></div>
+                              {/* Product chips */}
+                              {(l.products||[]).length>0&&(
+                                <div style={{display:"flex",flexWrap:"wrap",gap:3,marginBottom:5}}>
+                                  {(l.products||[]).slice(0,4).map((p,i)=>{const def=PRODUCTS[p.type];if(!def)return null;const isProc=p.status==="processed";return(<span key={i} style={{background:def.color+(isProc?"":"15"),color:isProc?"#ffffff":def.color,border:`1px solid ${def.color}${isProc?"":"44"}`,padding:"0px 5px",borderRadius:7,fontSize:8,fontWeight:600,whiteSpace:"nowrap"}}>{def.icon}{p.quantity>1?`×${p.quantity}`:""}{isProc?" ✓":""}</span>);})}
+                                  {(l.products||[]).length>4&&<span style={{fontSize:8,color:"#64748b"}}>+{(l.products||[]).length-4}</span>}
+                                </div>
+                              )}
+                              <select style={{...S.sel,fontSize:10,padding:"3px 6px",width:"100%"}} value={l.stage} onClick={e=>e.stopPropagation()} onChange={e=>upd(l.id,{stage:e.target.value})}>{STAGES.map(s=><option key={s} value={s}>{s}</option>)}</select>
+                            </div>
+                          );})}
+                          {hasMore&&<div style={{fontSize:9,color:"#475569",textAlign:"center",padding:"7px 0",borderTop:`1px solid ${BDR}`,marginTop:5}}>+ {(sl.length-100).toLocaleString()} more (use filter to narrow)</div>}
+                          {!sl.length&&<div style={{fontSize:10,color:"#94a3b8",textAlign:"center",padding:"18px 0",fontStyle:"italic"}}>{pSearch||pPriority?"No matches":"Empty"}</div>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* LEAD GENERATOR — with phone/website fetching */}
+            {tab==="generator"&&(
+              <div style={{display:"flex",gap:16,flex:1,overflow:"hidden"}}>
+                <div style={{width:255,flexShrink:0,display:"flex",flexDirection:"column",gap:12,overflow:"auto"}}>
+                  {!mapKey?(
+                    <div style={{background:"#2d1f07",border:"1px solid #f59e0b44",borderRadius:10,padding:14}}>
+                      <div style={{fontSize:13,fontWeight:600,color:"#fbbf24",marginBottom:6}}>🔑 API Key Required</div>
+                      <div style={{fontSize:12,color:"#64748b",marginBottom:10,lineHeight:1.6}}>Connect your Google API key to search businesses.</div>
+                      <button style={{...S.w,width:"100%"}} onClick={()=>setShowMapM(true)}>Connect API Key →</button>
+                    </div>
+                  ):(
+                    <div style={{background:"#dcfce7",border:"1px solid #86efac",borderRadius:8,padding:"9px 13px",fontSize:11,color:"#4ade80"}}>✅ Places API ready · key …{mapKey.slice(-6)}</div>
+                  )}
+                  <div style={S.card}>
+                    <div style={{fontSize:12,fontWeight:600,color:"#64748b",marginBottom:12}}>SEARCH</div>
+                    <div style={{marginBottom:10}}><label style={S.lbl}>County</label><select style={{...S.sel,width:"100%"}} value={gLoc} onChange={e=>setGLoc(e.target.value)}>{CNTS.map(c=><option key={c}>{c}</option>)}</select></div>
+                    <div style={{marginBottom:10}}>
+                      <label style={S.lbl}>Business Type</label>
+                      <div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:200,overflow:"auto"}}>
+                        {BIZ.map(t=>(<div key={t.label} onClick={()=>setGType(t)} style={{padding:"6px 10px",borderRadius:7,cursor:"pointer",fontSize:12,background:gType.label===t.label?"#1e3a5f":BG,color:gType.label===t.label?"#38bdf8":"#94a3b8",border:`1px solid ${gType.label===t.label?"#38bdf8":BDR}`}}>{t.label}</div>))}
+                      </div>
+                    </div>
+                    <div style={{marginBottom:12}}><label style={S.lbl}>Custom (optional)</label><input style={S.inp} placeholder="e.g. gym, pharmacy..." value={gQuery} onChange={e=>setGQuery(e.target.value)} onKeyDown={e=>e.key==="Enter"&&searchLeads()}/></div>
+
+                    {/* ── MAX RESULTS SELECTOR ── */}
+                    <div style={{marginBottom:10}}>
+                      <label style={S.lbl}>Max Results</label>
+                      <div style={{display:"flex",gap:5}}>
+                        {[20,60,120,300].map(n=>(
+                          <button key={n} onClick={()=>setGMaxResults(n)} style={{flex:1,background:gMaxResults===n?"#1e3a5f":BG,color:gMaxResults===n?"#38bdf8":"#94a3b8",border:`1px solid ${gMaxResults===n?"#38bdf8":BDR}`,padding:"5px 0",borderRadius:6,fontSize:11,cursor:"pointer",fontWeight:600}}>{n}</button>
+                        ))}
+                      </div>
+                      <div style={{fontSize:10,color:"#475569",marginTop:4,lineHeight:1.5}}>
+                        {gMaxResults<=60?
+                          `Single keyword · ${gMaxResults} max (Google's cap per query)`:
+                          `Requires Deep Search ON to exceed 60 per keyword`
+                        }
+                      </div>
+                    </div>
+
+                    {/* ── WIDE AREA SEARCH TOGGLE ── */}
+                    <div onClick={()=>setGWideArea(!gWideArea)} style={{display:"flex",alignItems:"center",gap:9,padding:"9px 11px",background:gWideArea?"rgba(74,222,128,0.08)":BG,border:`1px solid ${gWideArea?"#4ade8055":BDR}`,borderRadius:7,cursor:"pointer",marginBottom:8}}>
+                      <div style={{width:34,height:18,borderRadius:9,background:gWideArea?"#4ade80":"#334155",position:"relative",transition:"background 0.2s",flexShrink:0}}>
+                        <div style={{position:"absolute",top:2,left:gWideArea?18:2,width:14,height:14,borderRadius:"50%",background:"#fff",transition:"left 0.2s",boxShadow:"0 1px 3px rgba(0,0,0,0.3)"}}/>
+                      </div>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:12,fontWeight:600,color:gWideArea?"#4ade80":"#94a3b8"}}>🌐 Wide Area Search</div>
+                        <div style={{fontSize:10,color:"#64748b",lineHeight:1.4}}>
+                          {gWideArea&&COUNTY_AREAS[gLoc]?.length?
+                            `Searches ${COUNTY_AREAS[gLoc].length} sub-areas of ${gLoc}`:
+                            "Single search of the whole county"}
+                        </div>
+                      </div>
+                    </div>
+                    {gWideArea&&COUNTY_AREAS[gLoc]?.length>0&&(
+                      <div style={{marginBottom:10,padding:"7px 10px",background:"rgba(74,222,128,0.04)",border:"1px solid #4ade8022",borderRadius:6,fontSize:10,color:"#86efac",lineHeight:1.5,maxHeight:60,overflow:"auto"}}>
+                        <strong style={{color:"#4ade80"}}>Areas:</strong> {COUNTY_AREAS[gLoc].slice(0,8).join(" · ")}{COUNTY_AREAS[gLoc].length>8?` · +${COUNTY_AREAS[gLoc].length-8} more`:""}
+                      </div>
+                    )}
+
+                    {/* ── DEEP SEARCH TOGGLE ── */}
+                    <div onClick={()=>setGDeepSearch(!gDeepSearch)} style={{display:"flex",alignItems:"center",gap:9,padding:"9px 11px",background:gDeepSearch?"rgba(167,139,250,0.08)":BG,border:`1px solid ${gDeepSearch?"#a78bfa55":BDR}`,borderRadius:7,cursor:"pointer",marginBottom:12}}>
+                      <div style={{width:34,height:18,borderRadius:9,background:gDeepSearch?"#a78bfa":"#334155",position:"relative",transition:"background 0.2s",flexShrink:0}}>
+                        <div style={{position:"absolute",top:2,left:gDeepSearch?18:2,width:14,height:14,borderRadius:"50%",background:"#fff",transition:"left 0.2s",boxShadow:"0 1px 3px rgba(0,0,0,0.3)"}}/>
+                      </div>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:12,fontWeight:600,color:gDeepSearch?"#a78bfa":"#94a3b8"}}>🔬 Deep Search Mode</div>
+                        <div style={{fontSize:10,color:"#64748b",lineHeight:1.4}}>Runs {QUERY_VARIATIONS[gType.label]?.length||0} keyword variations · disabled when using custom query</div>
+                      </div>
+                    </div>
+
+                    <button style={{...S.g,width:"100%",padding:"10px 0",fontSize:13,opacity:!mapKey?0.6:1}} onClick={()=>searchLeads()} disabled={gLoading||!mapKey}>
+                      {gLoading?(gSearchProgress.active?`⏳ ${gSearchProgress.phase} (${gSearchProgress.done}/${gSearchProgress.total})`:"⏳ Searching..."):(()=>{
+                        const areaCount=gWideArea&&COUNTY_AREAS[gLoc]?.length?COUNTY_AREAS[gLoc].length:1;
+                        const kwCount=gDeepSearch&&!gQuery.trim()&&QUERY_VARIATIONS[gType.label]?QUERY_VARIATIONS[gType.label].length:1;
+                        const totalQ=areaCount*kwCount;
+                        const icon=gDeepSearch?"🔬":gWideArea?"🌐":"🔍";
+                        return `${icon} Find Leads · up to ${gMaxResults}${totalQ>1?` (${totalQ} queries)`:""}`;
+                      })()}
+                    </button>
+
+                    {/* Progress bar during search */}
+                    {gSearchProgress.active&&gSearchProgress.total>0&&(
+                      <div style={{marginTop:8,height:4,background:BG,borderRadius:2,overflow:"hidden"}}>
+                        <div style={{height:"100%",background:gDeepSearch?"#a78bfa":"#4ade80",width:`${Math.min(100,(gSearchProgress.done/gSearchProgress.total)*100)}%`,transition:"width 0.3s"}}/>
+                      </div>
+                    )}
+                  </div>
+                  {/* Note about email */}
+                  <div style={{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:8,padding:"10px 13px",fontSize:11,color:"#7dd3fc",lineHeight:1.8}}>
+                    <div style={{fontWeight:600,color:"#38bdf8",marginBottom:5}}>ℹ️ How it works</div>
+                    <div style={{marginBottom:3}}><strong style={{color:"#0f172a"}}>Step 1 — Search</strong><br/>Find businesses by type + county via Google Places</div>
+                    <div style={{marginBottom:3}}><strong style={{color:"#0f172a"}}>Step 2 — 📞 Load Details</strong><br/>Pulls phone + website from Google</div>
+                    <div style={{marginBottom:3}}><strong style={{color:"#a78bfa"}}>Step 3 — 🔬 AI Research</strong><br/>Scrapes website for emails, owner name, contact person. Uses AI to extract + structure everything.</div>
+                    <div style={{marginBottom:3}}><strong style={{color:"#0f172a"}}>Step 4 — Import</strong><br/>All data populates contact, email and notes automatically</div>
+                    <div style={{color:"#475569",marginTop:4,fontSize:10}}>Email confidence: <span style={{color:"#4ade80"}}>confirmed</span> = found on site · <span style={{color:"#fbbf24"}}>likely</span> = AI inferred from domain · <span style={{color:"#475569"}}>unknown</span> = not found</div>
+                  </div>
+                  {gImported>0&&<div style={{background:"#dcfce7",border:"1px solid #86efac",borderRadius:8,padding:"9px 13px",fontSize:12,color:"#4ade80"}}>🎯 {gImported} leads imported this session</div>}
+                </div>
+
+                <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12,flexShrink:0,flexWrap:"wrap"}}>
+                    {gMsg&&<div style={{fontSize:12,padding:"5px 11px",borderRadius:7,color:gMsg.startsWith("✅")?"#4ade80":gMsg.startsWith("❌")||gMsg.startsWith("⚠️")?"#f87171":"#fbbf24",background:gMsg.startsWith("✅")?"#022c22":gMsg.startsWith("❌")||gMsg.startsWith("⚠️")?"#450a0a":"#2d1f07",border:`1px solid ${gMsg.startsWith("✅")?"#14532d":gMsg.startsWith("❌")||gMsg.startsWith("⚠️")?"#f8717133":"#f59e0b44"}`}}>{gMsg}</div>}
+                    {gResults.length>0&&(
+                      <>
+                        {/* Load All Details button */}
+                        <button
+                          style={{...S.w,fontSize:11,padding:"5px 13px",opacity:gFetchingAll||!mapKey?0.6:1}}
+                          onClick={loadAllDetails}
+                          disabled={gFetchingAll||!mapKey}
+                          title="Fetch phone number and website for all results"
+                        >
+                          {gFetchingAll?`⏳ Fetching ${detailsLoaded}/${gResults.length}...`:`📞 Load Details (${gResults.length-detailsLoaded} left)`}
+                        </button>
+                        <button
+                          style={{...S.ai,fontSize:11,padding:"5px 13px",opacity:gResearchingAll?0.6:1}}
+                          onClick={researchAll}
+                          disabled={gResearchingAll}
+                          title="Use AI to research owner name, email and contact info from each business website"
+                        >
+                          {gResearchingAll?`⏳ Researching...`:`🔬 AI Research (${gResults.length-researchedCount} left)`}
+                        </button>
+                        <button style={{...S.x,fontSize:11,padding:"5px 11px"}} onClick={()=>{const all=gResults.every(r=>gSel[r.placeId]);const n={};if(!all)gResults.forEach(r=>{n[r.placeId]=true;});setGSel(n);}}>{gResults.every(r=>gSel[r.placeId])?"Deselect All":"Select All"}</button>
+                        {selCount>0&&<button style={{...S.g,fontSize:12,padding:"6px 14px"}} onClick={importSelected}>⬇ Import {selCount} selected</button>}
+
+                        <span style={{fontSize:11,color:"#475569",marginLeft:"auto"}}>{gResults.length} found · {selCount} selected · {detailsLoaded} details · {researchedCount} researched</span>
+                      </>
+                    )}
+                  </div>
+                  <div style={{flex:1,overflow:"auto"}}>
+                    {!gLoading&&!gResults.length&&!gMsg&&<div style={{textAlign:"center",padding:60,color:"#475569"}}><div style={{fontSize:48,marginBottom:14}}>🔍</div><div style={{fontSize:15,color:"#475569",fontWeight:600,marginBottom:8}}>Find businesses near you</div><div style={{fontSize:13,lineHeight:1.7,maxWidth:300,margin:"0 auto"}}>Pick a county and business type, hit Find Leads. Then click "📞 Load Details" to fetch phone numbers and websites.</div></div>}
+                    {gLoading&&!gResults.length&&<div style={{textAlign:"center",padding:60,color:"#475569"}}><div style={{fontSize:36,marginBottom:12}}>⏳</div><div>Searching for <strong style={{color:"#0f172a"}}>{gQuery||gType.label}</strong> in <strong style={{color:"#0f172a"}}>{gLoc}</strong>...</div></div>}
+                    {gResults.map(biz=>{
+                      const already=leads.some(l=>l.company.toLowerCase()===biz.company.toLowerCase());
+                      const det=gDetails[biz.placeId];
+                      const phone=det?.phone||biz.phone||"";
+                      const website=det?.website||biz.website||"";
+                      const detLoading=det?.loading;
+                      const detDone=det?.done;
+                      return(
+                        <div key={biz.placeId} style={{...S.card,marginBottom:8,padding:"11px 14px",borderColor:gSel[biz.placeId]?"#4ade80":already?"#1a2535":BDR,opacity:already?.65:1}}>
+                          <div style={{display:"flex",alignItems:"flex-start",gap:12}}>
+                            <div style={{paddingTop:2}}>
+                              {already
+                                ?<div style={{width:18,height:18,borderRadius:4,background:"#e5e7eb",border:`1px solid ${BDR}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,color:"#475569"}}>✓</div>
+                                :<Checkbox checked={!!gSel[biz.placeId]} onChange={v=>setGSel(p=>({...p,[biz.placeId]:v}))}/>
+                              }
+                            </div>
+                            <div style={{flex:1,minWidth:0}}>
+                              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3,flexWrap:"wrap"}}>
+                                <span style={{fontWeight:700,color:already?"#64748b":"#fff",fontSize:13}}>{biz.company}</span>
+                                {already&&<Tag bg={BG} col="#475569">In CRM</Tag>}
+                                {biz.rating&&<span style={{fontSize:11,color:"#fbbf24"}}>★ {biz.rating} <span style={{color:"#475569",fontSize:10}}>({biz.reviews})</span></span>}
+                              </div>
+                              <div style={{fontSize:11,color:"#64748b",marginBottom:6}}>{biz.address}</div>
+
+                              {/* ── Phone & Website row ── */}
+                              <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:5,minHeight:20,alignItems:"center"}}>
+                                {detLoading?(
+                                  <span style={{fontSize:11,color:"#f59e0b"}}>⏳ loading...</span>
+                                ):detDone?(
+                                  <>
+                                    {phone?<span style={{fontSize:11,color:"#4ade80",fontWeight:600}}>📞 {phone}</span>:<span style={{fontSize:11,color:"#475569"}}>📞 no phone</span>}
+                                    {website?<a href={website} target="_blank" rel="noreferrer" style={{fontSize:11,color:"#38bdf8",textDecoration:"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:200}} onClick={e=>e.stopPropagation()}>🌐 {website.replace(/^https?:\/\//,"").split("/")[0]}</a>:<span style={{fontSize:11,color:"#475569"}}>🌐 no website</span>}
+                                  </>
+                                ):(
+                                  <button
+                                    style={{...S.x,fontSize:10,padding:"2px 9px",color:"#38bdf8",borderColor:"#38bdf833"}}
+                                    onClick={e=>{e.stopPropagation();fetchOneDetail(biz.placeId);}}
+                                    disabled={!mapKey}
+                                  >
+                                    📞 Load phone & website
+                                  </button>
+                                )}
+                              </div>
+
+                              {/* ── AI Web Research row ── */}
+                              {(()=>{
+                                const wi=gWebInfo[biz.placeId];
+                                const confCol={"confirmed":"#4ade80","likely":"#fbbf24","unknown":"#475569"}[wi?.emailConfidence]||"#475569";
+                                if(wi?.loading){
+                                  return <div style={{fontSize:11,color:"#a78bfa",marginBottom:5}}>⏳ Researching website...</div>;
+                                }
+                                if(wi?.error){
+                                  return <div style={{fontSize:10,color:"#f87171",marginBottom:5}}>⚠️ Research failed — <span style={{cursor:"pointer",textDecoration:"underline"}} onClick={e=>{e.stopPropagation();fetchWebInfo(biz);}}>retry</span></div>;
+                                }
+                                if(wi?.done){
+                                  return(
+                                    <div style={{background:"rgba(167,139,250,.06)",border:"1px solid #a78bfa22",borderRadius:7,padding:"7px 9px",marginBottom:5}}>
+                                      <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3,flexWrap:"wrap"}}>
+                                        <span style={{fontSize:10,color:"#a78bfa",fontWeight:600,letterSpacing:.3}}>🔬 AI RESEARCH</span>
+                                        {wi.scraped&&<span style={{fontSize:9,background:"#4ade8022",color:"#4ade80",borderRadius:4,padding:"1px 5px",border:"1px solid #4ade8033"}}>live scrape</span>}
+                                      </div>
+                                      {wi.contactPerson&&<div style={{fontSize:11,color:"#0f172a",marginBottom:2}}>👤 <strong>{wi.contactPerson}</strong>{wi.jobTitle?<span style={{color:"#64748b"}}> · {wi.jobTitle}</span>:null}</div>}
+                                      {wi.ownerName&&wi.ownerName!==wi.contactPerson&&<div style={{fontSize:11,color:"#64748b",marginBottom:2}}>🏢 Owner: {wi.ownerName}</div>}
+                                      {wi.email&&<div style={{display:"flex",alignItems:"center",gap:5,marginBottom:2}}>
+                                        <span style={{fontSize:11,color:confCol,fontWeight:600}}>📧 {wi.email}</span>
+                                        <span style={{fontSize:9,background:confCol+"22",color:confCol,borderRadius:4,padding:"1px 5px",border:`1px solid ${confCol}33`}}>{wi.emailConfidence}</span>
+                                      </div>}
+                                      {wi.notes&&<div style={{fontSize:10,color:"#64748b",fontStyle:"italic",lineHeight:1.4}}>{wi.notes}</div>}
+                                    </div>
+                                  );
+                                }
+                                return(
+                                  <button
+                                    style={{...S.ai,fontSize:10,padding:"3px 10px",marginBottom:5,display:"inline-flex",alignItems:"center",gap:4}}
+                                    onClick={e=>{e.stopPropagation();fetchWebInfo(biz);}}
+                                    title="AI researches website + scrapes for owner name, email, contact person"
+                                  >
+                                    🔬 Research contact info
+                                  </button>
+                                );
+                              })()}
+
+                              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                                <Tag bg={BG} col="#38bdf8">{biz.industry}</Tag>
+                                <Tag bg={BG} col="#64748b">{gLoc}</Tag>
+                                {biz.lat&&<Tag bg={BG} col="#4ade80">📍 mapped</Tag>}
+                                {gWebInfo[biz.placeId]?.done&&<Tag bg={"#1a0a2e"} col="#a78bfa">🔬 researched</Tag>}
+                              </div>
+                            </div>
+                            {!already&&<span onClick={e=>{e.stopPropagation();importOne(biz);}} style={{fontSize:11,cursor:"pointer",background:"#dcfce7",color:"#4ade80",padding:"4px 9px",borderRadius:5,border:"1px solid #4ade8033",flexShrink:0,alignSelf:"flex-start",whiteSpace:"nowrap"}}>+ Add</span>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* EMAIL */}
+            {tab==="email"&&(
+              <div style={{display:"flex",gap:14,flex:1,overflow:"hidden"}}>
+                <div style={{width:250,flexShrink:0,display:"flex",flexDirection:"column",gap:10,overflow:"auto"}}>
+                  {!ec?<div style={{background:"#ede9fe",border:"1px solid #ddd6fe",borderRadius:10,padding:13}}><div style={{fontSize:12,fontWeight:600,color:"#a78bfa",marginBottom:5}}>✉️ Email not set up</div><div style={{fontSize:11,color:"#64748b",marginBottom:9,lineHeight:1.6}}>Add your eir email profile.</div><button style={{...S.x,width:"100%",color:"#a78bfa",borderColor:"#a78bfa44"}} onClick={()=>{setEProfI({...eProf});setShowEmailM(true);}}>Connect Email</button></div>:<div style={{background:"#ede9fe",border:"1px solid #ddd6fe",borderRadius:10,padding:"9px 12px",display:"flex",alignItems:"center",justifyContent:"space-between"}}><div><div style={{fontSize:11,color:"#a78bfa",fontWeight:600}}>✉️ {eProf.email}</div><div style={{fontSize:10,color:"#64748b",marginTop:1}}>{eProf.name}</div></div><span onClick={()=>{setEProfI({...eProf});setShowEmailM(true);}} style={{fontSize:10,color:"#64748b",cursor:"pointer"}}>Edit</span></div>}
+                  <div style={{display:"flex",background:BG,borderRadius:7,border:`1px solid ${BDR}`,overflow:"hidden"}}>{[["compose","✍️ Compose"],["sent",`📤 Sent (${sent.length})`]].map(([v,l])=>(<div key={v} onClick={()=>setEView(v)} style={{flex:1,padding:"7px 10px",cursor:"pointer",textAlign:"center",fontSize:11,fontWeight:600,background:eView===v?"#a78bfa22":"transparent",color:eView===v?"#a78bfa":"#64748b"}}>{l}</div>))}</div>
+                  {eView==="compose"&&<><input style={S.inp} placeholder="Search leads..." value={eSrch} onChange={e=>setESrch(e.target.value)}/><div style={{overflow:"auto",flex:1}}>{leads.filter(l=>!eSrch||`${l.company} ${l.contact}`.toLowerCase().includes(eSrch.toLowerCase())).map(l=>(<div key={l.id} onClick={()=>setELead(l)} style={{...S.card,padding:"9px 11px",marginBottom:6,cursor:"pointer",borderColor:eLead?.id===l.id?"#a78bfa":BDR}}><div style={{display:"flex",alignItems:"center",gap:7,marginBottom:3}}><Av name={l.company} sz={22}/><div style={{flex:1,minWidth:0}}><div style={{fontSize:11,fontWeight:600,color:"#0f172a",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.company}</div><div style={{fontSize:10,color:"#64748b"}}>{l.contact||l.county}</div></div><Tag bg={SB[l.stage]} col={SC[l.stage]}>{l.stage}</Tag></div>{l.email?<div style={{fontSize:10,color:"#475569",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>📧 {l.email}</div>:<div style={{fontSize:10,color:"#f87171"}}>⚠️ No email</div>}</div>))}</div></>}
+                  {eView==="sent"&&<div style={{overflow:"auto",flex:1}}>{!sent.length&&<div style={{textAlign:"center",padding:30,color:"#475569"}}><div style={{fontSize:28}}>📭</div></div>}{sent.map(e=><div key={e.id} style={{...S.card,padding:"9px 11px",marginBottom:6}}><div style={{fontSize:11,fontWeight:600,color:"#0f172a",marginBottom:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.subject}</div><div style={{fontSize:10,color:"#64748b"}}>{e.company} · {e.date}</div></div>)}</div>}
+                </div>
+                <div style={{flex:1,display:"flex",flexDirection:"column",gap:10,overflow:"hidden"}}>
+                  <div style={S.card}><div style={{fontSize:11,fontWeight:600,color:"#64748b",marginBottom:9,textTransform:"uppercase",letterSpacing:.5}}>Template</div><div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6}}>{TMPLS.map(t=>(<div key={t.id} onClick={()=>setETmpl(t.id)} style={{background:eTmpl===t.id?"#1a0a2e":BG,border:`1.5px solid ${eTmpl===t.id?"#a78bfa":BDR}`,borderRadius:9,padding:"8px 10px",cursor:"pointer"}}><div style={{fontSize:16,marginBottom:2}}>{t.icon}</div><div style={{fontSize:11,fontWeight:600,color:eTmpl===t.id?"#a78bfa":"#0f172a",marginBottom:1}}>{t.label}</div><div style={{fontSize:10,color:"#475569"}}>{t.desc}</div></div>))}</div></div>
+                  <div style={{...S.card,flex:1,display:"flex",flexDirection:"column",gap:9,overflow:"hidden"}}>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}><div style={{fontSize:13,fontWeight:600,color:"#0f172a"}}>{eLead?<span>For <span style={{color:"#a78bfa"}}>{eLead.company}</span></span>:"Select a lead"}</div><button style={S.ai} onClick={genEmail} disabled={!eLead||eGen}>{eGen?"⏳ Writing...":"✨ AI Generate"}</button></div>
+                    {!eLead&&<div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10,color:"#475569"}}><div style={{fontSize:40}}>✉️</div><div style={{color:"#475569"}}>Select a lead then hit ✨ AI Generate</div></div>}
+                    {eLead&&(<div style={{flex:1,display:"flex",flexDirection:"column",gap:8,overflow:"auto",minHeight:0}}>
+                      {!eLead.email&&<div style={{background:"#450a0a",border:"1px solid #f87171",borderRadius:7,padding:"8px 11px",fontSize:11,color:"#f87171",flexShrink:0}}>⚠️ No email address on this lead.</div>}
+                      <div style={{display:"flex",gap:8,flexShrink:0}}><div style={{flex:1}}><label style={S.lbl}>To</label><input style={S.inp} value={eLead.email||""} readOnly/></div><div style={{flex:1}}><label style={S.lbl}>From</label><input style={S.inp} value={eProf.email||"you@eir.ie"} readOnly/></div></div>
+                      <div style={{flexShrink:0}}><label style={S.lbl}>Subject</label><input style={S.inp} placeholder="Subject..." value={eSubj} onChange={e=>setESubj(e.target.value)}/></div>
+                      <div style={{flex:1,display:"flex",flexDirection:"column",minHeight:0}}><label style={S.lbl}>Body {eGen&&<span style={{color:"#a78bfa",fontWeight:400,textTransform:"none",fontSize:10}}>AI writing...</span>}</label><textarea style={{...S.inp,flex:1,resize:"none",minHeight:150,lineHeight:1.6,fontFamily:"inherit"}} placeholder={eGen?"✨ Generating...":"Write or AI Generate..."} value={eBody} onChange={e=>setEBody(e.target.value)}/></div>
+                      <div style={{display:"flex",gap:8,flexShrink:0}}><button style={{...S.g,flex:1,padding:"9px 0",fontSize:13,opacity:(!eLead.email||!eSubj||!eBody)?.5:1}} onClick={sendMail} disabled={!eLead.email||!eSubj||!eBody}>📤 Open in Email Client & Send</button><button style={S.x} onClick={()=>{setESubj("");setEBody("");}}>Clear</button></div>
+                      <div style={{fontSize:10,color:"#475569",textAlign:"center",flexShrink:0}}>Opens Outlook/Gmail pre-filled · auto-logged in CRM</div>
+                    </div>)}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* MAP */}
+            {tab==="map"&&(
+              <div style={{display:"flex",flex:1,overflow:"hidden"}}>
+                <div style={{width:220,background:SUR,borderRight:`1px solid ${BDR}`,display:"flex",flexDirection:"column",overflow:"hidden",flexShrink:0}}>
+                  <div style={{padding:"10px 12px",borderBottom:`1px solid ${BDR}`,flexShrink:0}}>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:5}}>
+                      <span style={{fontSize:11,fontWeight:600,color:"#64748b"}}>LEADS ON MAP</span>
+                      {leads.some(l=>!l.lat||!l.lng)&&mapKey&&<button style={{...S.w,fontSize:10,padding:"2px 8px"}} onClick={geoAll}>Pin all</button>}
+                    </div>
+                    <div style={{fontSize:10,color:"#475569"}}>📍 {pinned.length} pinned · {leads.length-pinned.length} unpinned</div>
+                  </div>
+                  <div style={{flex:1,overflow:"auto",padding:"6px 8px"}}>
+                    <div onClick={()=>setMapPin(null)} style={{...S.card,padding:"7px 11px",marginBottom:5,cursor:"pointer",borderColor:!mapPin?"#4ade80":BDR,fontSize:11,color:"#64748b",textAlign:"center"}}>🇮🇪 Ireland overview</div>
+                    {leads.map(l=>(
+                      <div key={l.id} onClick={()=>l.lat?setMapPin(l):geoOne(l)} style={{...S.card,padding:"8px 10px",marginBottom:5,cursor:"pointer",borderColor:mapPin?.id===l.id?SC[l.stage]:BDR,borderLeft:`3px solid ${mapPin?.id===l.id?SC[l.stage]:BDR}`}}>
+                        <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}><div style={{width:7,height:7,borderRadius:"50%",background:SC[l.stage],flexShrink:0}}/><span style={{fontSize:11,fontWeight:600,color:"#0f172a",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.company}</span>{l.lat?<span style={{fontSize:9,color:"#4ade80"}}>📍</span>:<span style={{fontSize:9,color:"#f59e0b"}}>?</span>}</div>
+                        <div style={{fontSize:10,color:"#64748b",paddingLeft:13}}>{l.county} · {l.stage}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+                  <div style={{background:SUR,borderBottom:`1px solid ${BDR}`,padding:"8px 14px",display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
+                    {mapPin?(
+                      <>
+                        <Av name={mapPin.company} sz={28}/>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:1,flexWrap:"wrap"}}><span style={{fontSize:13,fontWeight:700,color:"#0f172a"}}>{mapPin.company}</span><Tag bg={SB[mapPin.stage]} col={SC[mapPin.stage]}>{mapPin.stage}</Tag></div>
+                          <div style={{fontSize:11,color:"#64748b",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{mapPin.address}</div>
+                        </div>
+                        <div style={{fontSize:13,fontWeight:700,color:"#4ade80",flexShrink:0}}>{fmt(mapPin.annualRevenue)}</div>
+                        <a href={`https://www.google.com/maps?q=${mapPin.lat},${mapPin.lng}&z=16`} target="_blank" rel="noreferrer" style={{...S.w,textDecoration:"none",fontSize:11,padding:"5px 12px",display:"flex",alignItems:"center",gap:5,flexShrink:0}}>🗺️ Open in Google Maps ↗</a>
+                      </>
+                    ):(
+                      <>
+                        <span style={{fontSize:12,color:"#64748b",flex:1}}>🇮🇪 Ireland overview · <span style={{color:"#4ade80",fontWeight:600}}>{pinned.length}</span> leads pinned</span>
+                        <a href="https://www.google.com/maps/@53.35,-7.8,8z" target="_blank" rel="noreferrer" style={{...S.w,textDecoration:"none",fontSize:11,padding:"5px 12px",display:"flex",alignItems:"center",gap:5}}>🗺️ Open in Google Maps ↗</a>
+                      </>
+                    )}
+                  </div>
+                  <div style={{background:"#ffffff",borderBottom:`1px solid ${BDR}`,padding:"5px 14px",display:"flex",gap:12,flexWrap:"wrap",alignItems:"center",flexShrink:0}}>
+                    {STAGES.filter(s=>leads.some(l=>l.stage===s)).map(s=>(<div key={s} style={{display:"flex",alignItems:"center",gap:4}}><div style={{width:8,height:8,borderRadius:"50%",background:SC[s]}}/><span style={{fontSize:10,color:"#64748b"}}>{s}</span></div>))}
+                  </div>
+                  <div style={{flex:1,overflow:"hidden",position:"relative",background:"#f1f5f9"}}>
+                    {!mapKey?(
+                      <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                        <div style={{textAlign:"center",color:"#475569"}}>
+                          <div style={{fontSize:40,marginBottom:12}}>🗺️</div>
+                          <div style={{fontSize:14,color:"#64748b",fontWeight:600,marginBottom:6}}>Connect your Google API Key</div>
+                          <div style={{fontSize:12,marginBottom:14}}>Required for interactive map</div>
+                          <button style={{...S.w}} onClick={()=>setShowMapM(true)}>Connect API Key →</button>
+                        </div>
+                      </div>
+                    ):mapLoadErr?(
+                      <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                        <div style={{textAlign:"center",color:"#475569",padding:30,maxWidth:420}}>
+                          <div style={{fontSize:32,marginBottom:10}}>⚠️</div>
+                          <div style={{fontSize:13,color:"#f87171",marginBottom:8,fontWeight:600}}>Interactive map blocked</div>
+                          <div style={{fontSize:11,color:"#475569",marginBottom:14,lineHeight:1.7}}>{mapLoadErr}</div>
+                          <div style={{fontSize:11,color:"#64748b",marginBottom:14,lineHeight:1.7,padding:"10px 13px",background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:8}}>
+                            💡 The interactive map needs to load Google Maps JS, which is often blocked by sandboxes. <strong style={{color:"#0f172a"}}>Download the standalone HTML version</strong> and open it in Chrome — it will work perfectly there.
+                          </div>
+                          <div style={{display:"flex",gap:8,justifyContent:"center"}}>
+                            <button style={{...S.w,fontSize:11}} onClick={()=>{setMapLoadErr("");initInteractiveMap();}}>🔄 Retry</button>
+                            <button style={{...S.x,fontSize:11}} onClick={()=>setShowMapM(true)}>🧪 Test APIs</button>
+                          </div>
+                        </div>
+                      </div>
+                    ):(
+                      <div ref={mapDivRef} style={{width:"100%",height:"100%"}}/>
+                    )}
+                    {mapKey&&!mapLoadErr&&!mapLoaded&&(
+                      <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",background:"#f1f5f9",pointerEvents:"none"}}>
+                        <div style={{textAlign:"center",color:"#475569"}}>
+                          <div style={{fontSize:32,marginBottom:8}}>🗺️</div>
+                          <div style={{fontSize:12,color:"#64748b"}}>Loading interactive map...</div>
+                        </div>
+                      </div>
+                    )}
+                    {/* ── MAP LEGEND + CATEGORY FILTER (top-right overlay) ── */}
+                    {mapLoaded&&!mapEditLead&&(()=>{
+                      // Per-category counts among PINNED leads (subset of all)
+                      const catCounts={};
+                      for(const l of pinned){const{category}=catOf(l);catCounts[category]=(catCounts[category]||0)+1;}
+                      const totalVisible=markersRef.current.length;
+                      const totalPinned=pinned.length;
+                      return(
+                        <div style={{position:"absolute",top:14,right:14,maxWidth:240,background:"rgba(15,20,35,0.95)",backdropFilter:"blur(10px)",border:`1px solid ${BDR}`,borderRadius:10,boxShadow:"0 10px 40px rgba(0,0,0,0.5)",zIndex:50,display:"flex",flexDirection:"column",maxHeight:"calc(100% - 28px)"}}>
+                          <div style={{padding:"9px 12px",borderBottom:`1px solid ${BDR}`,display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
+                            <div>
+                              <div style={{fontSize:11,fontWeight:700,color:"#0f172a"}}>Map Legend</div>
+                              <div style={{fontSize:9,color:"#64748b"}}>{totalVisible.toLocaleString()} of {totalPinned.toLocaleString()} pinned</div>
+                            </div>
+                            <button onClick={()=>setMapLegendOpen(!mapLegendOpen)} style={{background:"none",border:"none",color:"#64748b",fontSize:14,cursor:"pointer",padding:0,width:20,height:20}}>{mapLegendOpen?"−":"+"}</button>
+                          </div>
+                          {mapLegendOpen&&(
+                            <div style={{padding:"10px 12px",overflowY:"auto",flex:1,minHeight:0}}>
+                              {/* Colour mode toggle */}
+                              <div style={{fontSize:9,color:"#475569",fontWeight:700,letterSpacing:.4,marginBottom:5}}>COLOUR BY</div>
+                              <div style={{display:"flex",gap:4,marginBottom:11,background:BG,padding:3,borderRadius:5,border:`1px solid ${BDR}`}}>
+                                {[["category","Category"],["stage","Stage"]].map(([v,l])=>(
+                                  <div key={v} onClick={()=>setMapColorMode(v)} style={{flex:1,padding:"4px 7px",borderRadius:4,cursor:"pointer",textAlign:"center",fontSize:10,fontWeight:600,background:mapColorMode===v?"#1e3a5f":"transparent",color:mapColorMode===v?"#38bdf8":"#64748b"}}>{l}</div>
+                                ))}
+                              </div>
+                              {/* Category checkboxes */}
+                              {mapColorMode==="category"&&(<>
+                                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}>
+                                  <span style={{fontSize:9,color:"#475569",fontWeight:700,letterSpacing:.4}}>CATEGORIES</span>
+                                  <div style={{display:"flex",gap:3}}>
+                                    <button onClick={()=>setMapCatFilter(new Set(Object.keys(CATEGORIES)))} style={{...S.x,fontSize:9,padding:"2px 6px"}}>All</button>
+                                    <button onClick={()=>setMapCatFilter(new Set())} style={{...S.x,fontSize:9,padding:"2px 6px"}}>None</button>
+                                  </div>
+                                </div>
+                                {Object.entries(CATEGORIES).filter(([k])=>catCounts[k]).sort((a,b)=>(catCounts[b[0]]||0)-(catCounts[a[0]]||0)).map(([cat,def])=>{
+                                  const isOn=mapCatFilter.has(cat);
+                                  const count=catCounts[cat]||0;
+                                  return(
+                                    <div key={cat} onClick={()=>{const next=new Set(mapCatFilter);if(isOn)next.delete(cat);else next.add(cat);setMapCatFilter(next);}} style={{display:"flex",alignItems:"center",gap:6,padding:"4px 6px",borderRadius:4,cursor:"pointer",background:isOn?"transparent":"rgba(0,0,0,0.3)",opacity:isOn?1:0.45}}>
+                                      <div style={{width:11,height:11,borderRadius:"50%",background:def.color,border:"1.5px solid #fff",flexShrink:0}}/>
+                                      <span style={{fontSize:10,color:"#0f172a",flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{cat}</span>
+                                      <span style={{fontSize:9,color:"#64748b",flexShrink:0}}>{count.toLocaleString()}</span>
+                                    </div>
+                                  );
+                                })}
+                              </>)}
+                              {/* Stage colours legend (when colour mode = stage) */}
+                              {mapColorMode==="stage"&&(<>
+                                <div style={{fontSize:9,color:"#475569",fontWeight:700,letterSpacing:.4,marginBottom:5}}>STAGES</div>
+                                {STAGES.map(s=>{
+                                  const isOn=mapStageFilter.has(s);
+                                  const count=pinned.filter(l=>l.stage===s).length;
+                                  return(
+                                    <div key={s} onClick={()=>{const next=new Set(mapStageFilter);if(isOn)next.delete(s);else next.add(s);setMapStageFilter(next);}} style={{display:"flex",alignItems:"center",gap:6,padding:"4px 6px",borderRadius:4,cursor:"pointer",opacity:isOn?1:0.45}}>
+                                      <div style={{width:11,height:11,borderRadius:"50%",background:SC[s],border:"1.5px solid #fff",flexShrink:0}}/>
+                                      <span style={{fontSize:10,color:"#0f172a",flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s}</span>
+                                      <span style={{fontSize:9,color:"#64748b",flexShrink:0}}>{count.toLocaleString()}</span>
+                                    </div>
+                                  );
+                                })}
+                              </>)}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+
+                    {/* ── INLINE EDIT PANEL — slides over the map ── */}
+                    {mapEditLead&&(
+                      <div style={{position:"absolute",top:14,right:14,bottom:14,width:340,background:"rgba(15,20,35,0.97)",backdropFilter:"blur(10px)",border:`1px solid ${BDR}`,borderRadius:12,boxShadow:"0 20px 60px rgba(0,0,0,0.6)",display:"flex",flexDirection:"column",overflow:"hidden",zIndex:100}}>
+                        <div style={{padding:"13px 16px",borderBottom:`1px solid ${BDR}`,display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
+                          <div style={{display:"flex",alignItems:"center",gap:8}}>
+                            <Av name={mapEditLead.company} sz={28}/>
+                            <div>
+                              <div style={{fontSize:12,fontWeight:700,color:"#0f172a"}}>Edit Lead</div>
+                              <div style={{fontSize:10,color:"#64748b"}}>Changes save instantly</div>
+                            </div>
+                          </div>
+                          <button onClick={()=>setMapEditLead(null)} style={{background:"none",border:"none",color:"#64748b",fontSize:18,cursor:"pointer",padding:4}}>✕</button>
+                        </div>
+                        <div style={{flex:1,overflow:"auto",padding:"14px 16px",display:"flex",flexDirection:"column",gap:11}}>
+                          <div>
+                            <label style={{fontSize:10,color:"#64748b",fontWeight:600,letterSpacing:.3,marginBottom:3,display:"block"}}>COMPANY</label>
+                            <input style={S.i} value={mapEditLead.company} onChange={e=>setMapEditLead({...mapEditLead,company:e.target.value})}/>
+                          </div>
+                          <div>
+                            <label style={{fontSize:10,color:"#64748b",fontWeight:600,letterSpacing:.3,marginBottom:3,display:"block"}}>CONTACT NAME</label>
+                            <input style={S.i} value={mapEditLead.contact||""} onChange={e=>setMapEditLead({...mapEditLead,contact:e.target.value})}/>
+                          </div>
+                          <div style={{display:"flex",gap:8}}>
+                            <div style={{flex:1}}>
+                              <label style={{fontSize:10,color:"#64748b",fontWeight:600,letterSpacing:.3,marginBottom:3,display:"block"}}>PHONE</label>
+                              <input style={S.i} value={mapEditLead.phone||""} onChange={e=>setMapEditLead({...mapEditLead,phone:e.target.value})}/>
+                            </div>
+                          </div>
+                          <div>
+                            <label style={{fontSize:10,color:"#64748b",fontWeight:600,letterSpacing:.3,marginBottom:3,display:"block"}}>EMAIL</label>
+                            <input style={S.i} value={mapEditLead.email||""} onChange={e=>setMapEditLead({...mapEditLead,email:e.target.value})}/>
+                          </div>
+                          <div>
+                            <label style={{fontSize:10,color:"#64748b",fontWeight:600,letterSpacing:.3,marginBottom:5,display:"block"}}>STAGE</label>
+                            <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+                              {STAGES.map(s=>(<button key={s} onClick={()=>setMapEditLead({...mapEditLead,stage:s})} style={{background:mapEditLead.stage===s?SC[s]:BG,color:mapEditLead.stage===s?"#0a0e1a":"#94a3b8",border:`1px solid ${mapEditLead.stage===s?SC[s]:BDR}`,padding:"4px 8px",borderRadius:5,fontSize:10,cursor:"pointer",fontWeight:600}}>{s}</button>))}
+                            </div>
+                          </div>
+                          <div>
+                            <label style={{fontSize:10,color:"#64748b",fontWeight:600,letterSpacing:.3,marginBottom:5,display:"block"}}>PRIORITY</label>
+                            <div style={{display:"flex",gap:6}}>
+                              {["High","Medium","Low"].map(p=>(<button key={p} onClick={()=>setMapEditLead({...mapEditLead,priority:p})} style={{flex:1,background:mapEditLead.priority===p?PCOL[p]:BG,color:mapEditLead.priority===p?"#0a0e1a":"#94a3b8",border:`1px solid ${mapEditLead.priority===p?PCOL[p]:BDR}`,padding:"5px",borderRadius:5,fontSize:11,cursor:"pointer",fontWeight:600}}>{p}</button>))}
+                            </div>
+                          </div>
+                          <div style={{display:"flex",gap:8}}>
+                            <div style={{flex:1}}>
+                              <label style={{fontSize:10,color:"#64748b",fontWeight:600,letterSpacing:.3,marginBottom:3,display:"block"}}>REVENUE €</label>
+                              <input type="number" style={S.i} value={mapEditLead.annualRevenue||0} onChange={e=>setMapEditLead({...mapEditLead,annualRevenue:Number(e.target.value)||0})}/>
+                            </div>
+                            <div style={{flex:1}}>
+                              <label style={{fontSize:10,color:"#64748b",fontWeight:600,letterSpacing:.3,marginBottom:3,display:"block"}}>EMPLOYEES</label>
+                              <input type="number" style={S.i} value={mapEditLead.employees||0} onChange={e=>setMapEditLead({...mapEditLead,employees:Number(e.target.value)||0})}/>
+                            </div>
+                          </div>
+                        </div>
+                        <div style={{padding:"11px 16px",borderTop:`1px solid ${BDR}`,display:"flex",gap:8,flexShrink:0}}>
+                          <button style={{...S.g,flex:1,padding:"8px 12px",fontSize:12}} onClick={saveMapEdit}>💾 Save Changes</button>
+                          <button style={S.x} onClick={()=>setMapEditLead(null)}>Cancel</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* EXCEL EXPORT */}
+            {tab==="excel"&&(()=>{
+              const filtered=xlFilteredLeads();
+              const enabledSheets=Object.entries(xlSheets).filter(([k,v])=>v).map(([k])=>k);
+              const enabledCols=Object.entries(xlColumns).filter(([k,v])=>v).length;
+              return(
+                <div style={{display:"flex",gap:20,height:"100%"}}>
+                  {/* LEFT: Configuration */}
+                  <div style={{flex:1,maxWidth:680,display:"flex",flexDirection:"column",gap:14,overflow:"auto",paddingRight:6}}>
+                    <div>
+                      <h2 style={{fontSize:20,fontWeight:700,color:"#0f172a",marginBottom:4}}>📈 Excel Export</h2>
+                      <div style={{fontSize:12,color:"#64748b"}}>Customisable multi-sheet workbook with all your CRM data</div>
+                    </div>
+
+                    {/* SHEETS */}
+                    <div style={{...S.card,padding:"14px 18px"}}>
+                      <div style={{fontSize:11,fontWeight:700,color:"#64748b",letterSpacing:.5,marginBottom:11}}>📑 SHEETS TO INCLUDE</div>
+                      <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8}}>
+                        {[
+                          {k:"leads",icon:"🏢",lbl:"Leads",desc:"All lead data + custom columns"},
+                          {k:"pipeline",icon:"⚡",lbl:"Sales Pipeline",desc:"Stage breakdown + weighted values"},
+                          {k:"activity",icon:"📋",lbl:"Activity Log",desc:"Every interaction logged"},
+                          {k:"notes",icon:"📝",lbl:"Notes",desc:"All notes across leads"},
+                          {k:"emails",icon:"✉️",lbl:"Email Outreach",desc:"Sent emails history"},
+                          {k:"analytics",icon:"📊",lbl:"Analytics",desc:"KPIs + breakdowns by industry/county"},
+                        ].map(s=>(
+                          <div key={s.k} onClick={()=>setXlSheets(x=>({...x,[s.k]:!x[s.k]}))} style={{display:"flex",alignItems:"center",gap:9,padding:"9px 11px",background:xlSheets[s.k]?"rgba(74,222,128,.08)":BG,border:`1px solid ${xlSheets[s.k]?"#4ade8055":BDR}`,borderRadius:7,cursor:"pointer"}}>
+                            <Checkbox checked={!!xlSheets[s.k]} onChange={()=>setXlSheets(x=>({...x,[s.k]:!x[s.k]}))}/>
+                            <div style={{fontSize:16}}>{s.icon}</div>
+                            <div style={{flex:1,minWidth:0}}>
+                              <div style={{fontSize:12,fontWeight:600,color:xlSheets[s.k]?"#fff":"#94a3b8"}}>{s.lbl}</div>
+                              <div style={{fontSize:10,color:"#64748b",overflow:"hidden",textOverflow:"ellipsis"}}>{s.desc}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* COLUMNS (Leads sheet) */}
+                    {xlSheets.leads&&(
+                      <div style={{...S.card,padding:"14px 18px"}}>
+                        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:11}}>
+                          <div style={{fontSize:11,fontWeight:700,color:"#64748b",letterSpacing:.5}}>📋 LEADS SHEET COLUMNS</div>
+                          <div style={{display:"flex",gap:5}}>
+                            <button style={{...S.x,fontSize:10,padding:"3px 9px"}} onClick={()=>setXlColumns(c=>Object.fromEntries(Object.keys(c).map(k=>[k,true])))}>All</button>
+                            <button style={{...S.x,fontSize:10,padding:"3px 9px"}} onClick={()=>setXlColumns(c=>Object.fromEntries(Object.keys(c).map(k=>[k,false])))}>None</button>
+                          </div>
+                        </div>
+                        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5}}>
+                          {[
+                            ["company","Company"],["contact","Contact Name"],["phone","Phone"],
+                            ["email","Email"],["industry","Industry"],["county","County"],
+                            ["stage","Stage"],["priority","Priority"],["annualRevenue","Revenue €"],
+                            ["weightedRev","Weighted Revenue"],["probability","Win Probability"],["employees","Employees"],
+                            ["address","Address"],["website","Website"],["source","Source"],
+                            ["createdAt","Created Date"],["lastActivity","Last Activity"],["daysCold","Days Cold"],
+                            ["notesCount","Notes Count"],["lastNote","Latest Note"],["lat","Latitude"],
+                            ["lng","Longitude"],
+                          ].map(([k,lbl])=>(
+                            <div key={k} onClick={()=>setXlColumns(c=>({...c,[k]:!c[k]}))} style={{display:"flex",alignItems:"center",gap:6,padding:"4px 7px",background:xlColumns[k]?"rgba(56,189,248,.08)":"transparent",border:`1px solid ${xlColumns[k]?"#38bdf833":BDR}`,borderRadius:5,cursor:"pointer",fontSize:11,color:xlColumns[k]?"#0f172a":"#64748b"}}>
+                              <Checkbox checked={!!xlColumns[k]} onChange={()=>setXlColumns(c=>({...c,[k]:!c[k]}))}/>
+                              <span>{lbl}</span>
+                            </div>
+                          ))}
+                        </div>
+                        {/* Custom fields */}
+                        <div style={{marginTop:12,paddingTop:11,borderTop:`1px solid ${BDR}`}}>
+                          <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:6,letterSpacing:.3}}>CUSTOM FIELDS (appear as empty columns ready to fill in Excel)</div>
+                          <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:7}}>
+                            {xlCustomFields.map(f=>(
+                              <div key={f} style={{display:"flex",alignItems:"center",gap:5,background:"#ede9fe",border:"1px solid #ddd6fe",borderRadius:5,padding:"3px 8px",fontSize:11,color:"#c4b5fd"}}>
+                                <span>{f}</span>
+                                <span onClick={()=>setXlCustomFields(arr=>arr.filter(x=>x!==f))} style={{cursor:"pointer",color:"#f87171",fontWeight:700}}>×</span>
+                              </div>
+                            ))}
+                          </div>
+                          <div style={{display:"flex",gap:6}}>
+                            <input style={{...S.i,flex:1,fontSize:11,padding:"5px 9px"}} placeholder='e.g. "Decision Maker", "Budget", "Next Step"' value={xlNewField} onChange={e=>setXlNewField(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&xlNewField.trim()){setXlCustomFields(arr=>[...arr,xlNewField.trim()]);setXlNewField("");}}}/>
+                            <button style={{...S.x,fontSize:11,padding:"5px 12px"}} onClick={()=>{if(xlNewField.trim()){setXlCustomFields(arr=>[...arr,xlNewField.trim()]);setXlNewField("");}}}>+ Add</button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* FILTERS */}
+                    <div style={{...S.card,padding:"14px 18px"}}>
+                      <div style={{fontSize:11,fontWeight:700,color:"#64748b",letterSpacing:.5,marginBottom:11}}>🔍 FILTERS</div>
+                      <div style={{marginBottom:11}}>
+                        <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:5,letterSpacing:.3}}>STAGES</div>
+                        <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+                          {STAGES.map(s=>(
+                            <button key={s} onClick={()=>toggleXlFilter("stages",s)} style={{background:xlFilters.stages.includes(s)?SC[s]:BG,color:xlFilters.stages.includes(s)?"#0a0e1a":"#64748b",border:`1px solid ${xlFilters.stages.includes(s)?SC[s]:BDR}`,padding:"3px 9px",borderRadius:5,fontSize:10,cursor:"pointer",fontWeight:600}}>{s}</button>
+                          ))}
+                        </div>
+                      </div>
+                      <div style={{marginBottom:11}}>
+                        <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:5,letterSpacing:.3}}>PRIORITY</div>
+                        <div style={{display:"flex",gap:5}}>
+                          {["High","Medium","Low"].map(p=>(
+                            <button key={p} onClick={()=>toggleXlFilter("priorities",p)} style={{background:xlFilters.priorities.includes(p)?PCOL[p]:BG,color:xlFilters.priorities.includes(p)?"#0a0e1a":"#64748b",border:`1px solid ${xlFilters.priorities.includes(p)?PCOL[p]:BDR}`,padding:"3px 11px",borderRadius:5,fontSize:11,cursor:"pointer",fontWeight:600}}>{p}</button>
+                          ))}
+                        </div>
+                      </div>
+                      <div style={{display:"flex",gap:10}}>
+                        <div style={{flex:1}}>
+                          <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:4,letterSpacing:.3}}>FROM DATE</div>
+                          <input type="date" style={{...S.i,fontSize:11,padding:"5px 9px"}} value={xlFilters.dateFrom} onChange={e=>setXlFilters(f=>({...f,dateFrom:e.target.value}))}/>
+                        </div>
+                        <div style={{flex:1}}>
+                          <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:4,letterSpacing:.3}}>TO DATE</div>
+                          <input type="date" style={{...S.i,fontSize:11,padding:"5px 9px"}} value={xlFilters.dateTo} onChange={e=>setXlFilters(f=>({...f,dateTo:e.target.value}))}/>
+                        </div>
+                        <button style={{...S.x,fontSize:10,padding:"5px 11px",alignSelf:"flex-end"}} onClick={()=>setXlFilters({stages:[...STAGES],priorities:["High","Medium","Low"],counties:[],industries:[],dateFrom:"",dateTo:""})}>Reset</button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* RIGHT: Preview & Generate */}
+                  <div style={{width:320,display:"flex",flexDirection:"column",gap:12,flexShrink:0}}>
+                    <div style={{...S.card,padding:"15px 18px",background:"linear-gradient(135deg,rgba(74,222,128,.05),rgba(56,189,248,.05))",border:"1px solid #4ade8033"}}>
+                      <div style={{fontSize:11,fontWeight:700,color:"#4ade80",letterSpacing:.5,marginBottom:11}}>📦 EXPORT PREVIEW</div>
+                      <div style={{display:"flex",flexDirection:"column",gap:7}}>
+                        <div style={{display:"flex",justifyContent:"space-between",fontSize:11}}><span style={{color:"#64748b"}}>Leads to export</span><span style={{fontWeight:700,color:"#0f172a"}}>{filtered.length} <span style={{color:"#64748b",fontSize:10}}>of {leads.length}</span></span></div>
+                        <div style={{display:"flex",justifyContent:"space-between",fontSize:11}}><span style={{color:"#64748b"}}>Sheets included</span><span style={{fontWeight:700,color:"#0f172a"}}>{enabledSheets.length}</span></div>
+                        <div style={{display:"flex",justifyContent:"space-between",fontSize:11}}><span style={{color:"#64748b"}}>Leads columns</span><span style={{fontWeight:700,color:"#0f172a"}}>{enabledCols+xlCustomFields.length}</span></div>
+                        <div style={{display:"flex",justifyContent:"space-between",fontSize:11}}><span style={{color:"#64748b"}}>Custom fields</span><span style={{fontWeight:700,color:"#0f172a"}}>{xlCustomFields.length}</span></div>
+                        <div style={{display:"flex",justifyContent:"space-between",fontSize:11}}><span style={{color:"#64748b"}}>Total pipeline value</span><span style={{fontWeight:700,color:"#4ade80"}}>{fmt(filtered.reduce((s,l)=>s+(l.annualRevenue||0),0))}</span></div>
+                      </div>
+                      <div style={{marginTop:12,paddingTop:11,borderTop:`1px solid ${BDR}`}}>
+                        <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:6,letterSpacing:.3}}>SHEETS</div>
+                        <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+                          {enabledSheets.map(s=>(<span key={s} style={{fontSize:10,background:"#4ade8011",color:"#4ade80",border:"1px solid #4ade8033",borderRadius:4,padding:"2px 7px"}}>{s}</span>))}
+                          <span style={{fontSize:10,background:"#a78bfa11",color:"#a78bfa",border:"1px solid #a78bfa33",borderRadius:4,padding:"2px 7px"}}>_Info</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <button
+                      style={{...S.g,padding:"14px 18px",fontSize:14,fontWeight:700,opacity:xlGenerating||!filtered.length||!enabledSheets.length?0.5:1,cursor:xlGenerating||!filtered.length||!enabledSheets.length?"not-allowed":"pointer"}}
+                      onClick={generateExcel}
+                      disabled={xlGenerating||!filtered.length||!enabledSheets.length}
+                    >
+                      {xlGenerating?"⏳ Generating Excel...":`📥 Download Excel (.xlsx)`}
+                    </button>
+
+                    <div style={{...S.card,padding:"12px 16px",background:"#eff6ff",border:"1px solid #bfdbfe"}}>
+                      <div style={{fontSize:11,fontWeight:600,color:"#38bdf8",marginBottom:6}}>💡 Tips</div>
+                      <div style={{fontSize:10,color:"#7dd3fc",lineHeight:1.7}}>
+                        • Custom fields appear as empty columns ready to fill in Excel<br/>
+                        • The _Info sheet records all filters and export settings<br/>
+                        • Headers are frozen, columns auto-sized for readability<br/>
+                        • Weighted revenue = Annual Revenue × Win Probability<br/>
+                        • Save the file then re-import via the Leads tab to round-trip changes
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* ACTIVITY */}
+            {tab==="activity"&&(
+              <div style={{maxWidth:640}}>
+                <div style={{fontSize:11,color:"#64748b",marginBottom:14,fontWeight:600,letterSpacing:.5}}>ALL PIPELINE ACTIVITY</div>
+                {(()=>{
+                  // Memoised would be ideal but tab=='activity' check means we only compute when active
+                  const all=allActs.slice().sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+                  const recent=all.slice(0,200);
+                  const totalActs=all.length;
+                  return(<>
+                    {totalActs>200&&<div style={{fontSize:10,color:"#64748b",marginBottom:10,padding:"6px 10px",background:BG,border:`1px solid ${BDR}`,borderRadius:5}}>Showing 200 most recent of {totalActs.toLocaleString()} activities</div>}
+                    {recent.map(a=>(<div key={a.id||a.leadId+a.date+a.type} style={{...S.card,marginBottom:8,padding:"10px 13px",display:"flex",gap:11}}><div style={{fontSize:17,flexShrink:0}}>{AICO[a.type]||"📌"}</div><div style={{flex:1}}><div style={{display:"flex",alignItems:"center",gap:7,marginBottom:3,flexWrap:"wrap"}}><span style={{fontWeight:600,color:"#0f172a",fontSize:12}}>{a.company}</span><Tag bg={SB[leads.find(l=>l.id===a.leadId)?.stage||"Prospect"]} col={SC[leads.find(l=>l.id===a.leadId)?.stage||"Prospect"]}>{leads.find(l=>l.id===a.leadId)?.stage||"—"}</Tag><span style={{fontSize:10,color:"#475569",marginLeft:"auto"}}>{a.date}</span></div><div style={{fontSize:11,color:"#64748b"}}>{a.note}</div><div style={{fontSize:10,color:"#475569",marginTop:2,textTransform:"capitalize"}}>{a.type}</div></div></div>))}
+                    {!totalActs&&<div style={{textAlign:"center",padding:50,color:"#475569"}}><div style={{fontSize:36,marginBottom:10}}>📋</div>No activities yet.</div>}
+                  </>);
+                })()}
+              </div>
+            )}
+
+          </div>
+        </div>
+      </div>
+
+      {/* IMPORT MODAL */}
+      {showImport&&(<Modal onClose={()=>setShowImport(false)} w={620}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+          <div><div style={{fontSize:16,fontWeight:700,color:"#0f172a"}}>⬆ Import Leads</div><div style={{fontSize:11,color:"#64748b",marginTop:2}}>JSON · CSV · Excel · Paste from spreadsheet</div></div>
+          <button onClick={()=>setShowImport(false)} style={{background:"none",border:"none",color:"#64748b",fontSize:20,cursor:"pointer"}}>×</button>
+        </div>
+        <div style={{display:"flex",gap:5,marginBottom:14,background:BG,padding:4,borderRadius:8,border:`1px solid ${BDR}`}}>
+          {[["file","📁 Upload File"],["paste","📋 Paste Data"]].map(([v,l])=>(<div key={v} onClick={()=>{setImpMethod(v);resetImport();}} style={{flex:1,padding:"7px 10px",borderRadius:6,cursor:"pointer",textAlign:"center",fontSize:12,fontWeight:600,background:impMethod===v?"#1e3a5f":"transparent",color:impMethod===v?"#38bdf8":"#64748b"}}>{l}</div>))}
+        </div>
+        {impMethod==="file"&&(
+          <div>
+            <input ref={fileInputRef} type="file" accept=".json,.csv,.tsv,.xlsx,.xls" onChange={e=>handleFile(e.target.files?.[0])} style={{display:"none"}}/>
+            <div onClick={()=>fileInputRef.current?.click()} onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();handleFile(e.dataTransfer.files?.[0]);}} style={{border:`2px dashed ${BDR}`,borderRadius:10,padding:"32px 20px",textAlign:"center",cursor:"pointer",background:"#f8fafc"}} onMouseEnter={e=>e.currentTarget.style.borderColor="#4ade80"} onMouseLeave={e=>e.currentTarget.style.borderColor=BDR}>
+              {impFileName?<div><div style={{fontSize:32,marginBottom:6}}>📄</div><div style={{fontSize:13,color:"#0f172a",fontWeight:600}}>{impFileName}</div><div style={{fontSize:11,color:"#64748b",marginTop:4}}>Click to choose a different file</div></div>:<div><div style={{fontSize:36,marginBottom:8}}>📤</div><div style={{fontSize:13,color:"#0f172a",fontWeight:600,marginBottom:4}}>Drag & drop or click to upload</div><div style={{fontSize:11,color:"#64748b"}}>Supports .json · .csv · .tsv · .xlsx · .xls</div></div>}
+            </div>
+          </div>
+        )}
+        {impMethod==="paste"&&(
+          <div>
+            <label style={S.lbl}>Paste JSON, CSV, or copy-paste from Excel/Google Sheets</label>
+            <textarea style={{...S.inp,resize:"vertical",lineHeight:1.5,fontFamily:"monospace",minHeight:120,fontSize:11}} placeholder="Paste data here..." value={impPaste} onChange={e=>setImpPaste(e.target.value)}/>
+            <button style={{...S.x,marginTop:8,width:"100%"}} onClick={handlePaste}>Detect & Preview</button>
+          </div>
+        )}
+        {impMsg&&<div style={{marginTop:12,padding:"8px 12px",borderRadius:7,fontSize:12,color:impMsg.startsWith("✅")?"#4ade80":impMsg.startsWith("❌")?"#f87171":"#fbbf24",background:impMsg.startsWith("✅")?"#022c22":impMsg.startsWith("❌")?"#450a0a":"#2d1f07",border:`1px solid ${impMsg.startsWith("✅")?"#14532d":impMsg.startsWith("❌")?"#f8717133":"#f59e0b44"}`}}>{impMsg}</div>}
+        {impPreview.length>0&&(
+          <div style={{marginTop:14}}>
+            <div style={{fontSize:12,fontWeight:600,color:"#64748b",marginBottom:8}}>PREVIEW · first {Math.min(impPreview.length,5)} of {impPreview.length}</div>
+            <div style={{background:BG,border:`1px solid ${BDR}`,borderRadius:8,maxHeight:180,overflow:"auto"}}>
+              {impPreview.slice(0,5).map((l,i)=>(<div key={i} style={{padding:"7px 11px",borderBottom:i<4?`1px solid ${BDR}`:"none",display:"flex",alignItems:"center",gap:8}}><span style={{color:"#4ade80",fontSize:11}}>✓</span><span style={{fontSize:12,fontWeight:600,color:"#0f172a",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.company}</span><span style={{fontSize:10,color:"#64748b"}}>{l.county}</span><span style={{fontSize:10,color:"#4ade80",fontWeight:600}}>{l.annualRevenue?fmt(l.annualRevenue):"—"}</span></div>))}
+              {impPreview.length>5&&<div style={{padding:"6px 11px",fontSize:10,color:"#475569",textAlign:"center"}}>+ {impPreview.length-5} more</div>}
+            </div>
+          </div>
+        )}
+        {impPreview.length>0&&(
+          <div style={{marginTop:14,padding:12,background:BG,border:`1px solid ${BDR}`,borderRadius:8}}>
+            <div style={{fontSize:11,fontWeight:600,color:"#64748b",marginBottom:9,letterSpacing:.5}}>IMPORT SETTINGS</div>
+            <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:9}}><input type="checkbox" checked={impSkipDup} onChange={e=>setImpSkipDup(e.target.checked)} id="dupchk" style={{cursor:"pointer"}}/><label htmlFor="dupchk" style={{fontSize:12,color:"#cbd5e1",cursor:"pointer"}}>Skip duplicates (same company name)</label></div>
+            <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:9}}><span style={{fontSize:12,color:"#64748b",width:120}}>Default stage:</span><select style={{...S.sel,fontSize:11,padding:"4px 8px"}} value={impDefStage} onChange={e=>setImpDefStage(e.target.value)}>{STAGES.map(s=><option key={s}>{s}</option>)}</select></div>
+            <div style={{display:"flex",gap:10,alignItems:"center"}}><span style={{fontSize:12,color:"#64748b",width:120}}>Default priority:</span><select style={{...S.sel,fontSize:11,padding:"4px 8px"}} value={impDefPriority} onChange={e=>setImpDefPriority(e.target.value)}>{PRIS.map(p=><option key={p}>{p}</option>)}</select></div>
+          </div>
+        )}
+        <div style={{display:"flex",gap:8,marginTop:14}}>
+          {impPreview.length>0&&<button style={{...S.g,flex:1,padding:"10px 0",fontSize:13}} onClick={doImport}>⬇ Import {impPreview.length} Lead{impPreview.length!==1?"s":""}</button>}
+          <button style={{...S.x,flex:impPreview.length?0:1,padding:"10px 16px"}} onClick={()=>setShowImport(false)}>Cancel</button>
+        </div>
+      </Modal>)}
+
+      {/* ADD LEAD MODAL */}
+      {showAdd&&(<Modal onClose={()=>setShowAdd(false)} w={500}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}><div style={{fontSize:16,fontWeight:700,color:"#0f172a"}}>+ Add New Lead</div><button onClick={()=>setShowAdd(false)} style={{background:"none",border:"none",color:"#64748b",fontSize:20,cursor:"pointer"}}>×</button></div>
+        {mapKey&&<div style={{background:"#dcfce7",border:"1px solid #86efac",borderRadius:7,padding:"7px 11px",marginBottom:11,fontSize:11,color:"#4ade80"}}>📍 Address will be auto-geocoded</div>}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+          {[["company","Company *"],["contact","Contact"],["phone","Phone"],["email","Email"]].map(([k,lb])=>(<div key={k} style={k==="company"?{gridColumn:"1/-1"}:{}}><label style={S.lbl}>{lb}</label><input style={S.inp} value={form[k]} onChange={e=>setForm(f=>({...f,[k]:e.target.value}))} placeholder={lb}/></div>))}
+          <div style={{gridColumn:"1/-1"}}><label style={S.lbl}>Address</label><input style={S.inp} value={form.address} onChange={e=>setForm(f=>({...f,address:e.target.value}))} placeholder="e.g. 10 Grafton Street, Dublin 2"/></div>
+          {[["county","County",CNTS],["industry","Industry",INDS],["stage","Stage",STAGES],["priority","Priority",PRIS]].map(([k,lb,opts])=>(<div key={k}><label style={S.lbl}>{lb}</label><select style={{...S.sel,width:"100%"}} value={form[k]} onChange={e=>setForm(f=>({...f,[k]:e.target.value}))}>{opts.map(o=><option key={o}>{o}</option>)}</select></div>))}
+          {[["employees","Employees"],["annualRevenue","Revenue (€)"]].map(([k,lb])=>(<div key={k}><label style={S.lbl}>{lb}</label><input style={S.inp} type="number" value={form[k]} onChange={e=>setForm(f=>({...f,[k]:e.target.value}))} placeholder="0"/></div>))}
+        </div>
+        <div style={{display:"flex",gap:8,marginTop:16}}><button style={{...S.g,flex:1,padding:"9px 0",fontSize:13}} onClick={addLead}>{geoMsg||"Add Lead"}</button><button style={S.x} onClick={()=>setShowAdd(false)}>Cancel</button></div>
+      </Modal>)}
+
+      {/* MAPS KEY MODAL */}
+      {/* ── CUSTOM TAGS MANAGER MODAL ── */}
+      {showTagsModal&&(<Modal onClose={()=>setShowTagsModal(false)}>
+        <h3 style={{fontSize:16,fontWeight:700,marginBottom:5,color:"#0f172a"}}>🏷️ Manage Custom Tags</h3>
+        <div style={{fontSize:11,color:"#64748b",marginBottom:14,lineHeight:1.5}}>Create tags to organise leads your own way. Tags can be applied to leads alongside auto-categories.</div>
+        <div style={{background:BG,border:`1px solid ${BDR}`,borderRadius:8,padding:"12px 14px",marginBottom:12}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#64748b",letterSpacing:.5,marginBottom:8}}>+ NEW TAG</div>
+          <div style={{display:"flex",gap:6,alignItems:"center"}}>
+            <input style={{...S.inp,flex:1,padding:"6px 10px",fontSize:12}} placeholder="Tag name (e.g. Hot Lead, Decision Maker, Q1 Target)" value={newTagName} onChange={e=>setNewTagName(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&newTagName.trim()){const t={id:"t"+Date.now()+Math.random().toString(36).slice(2,7),name:newTagName.trim(),color:newTagColor};saveCustomTags([...customTags,t]);setNewTagName("");}}}/>
+            <input type="color" value={newTagColor} onChange={e=>setNewTagColor(e.target.value)} style={{width:36,height:32,border:`1px solid ${BDR}`,borderRadius:5,cursor:"pointer",background:"transparent"}} title="Pick tag colour"/>
+            <button style={{...S.g,padding:"7px 14px",fontSize:11}} onClick={()=>{if(!newTagName.trim())return;const t={id:"t"+Date.now()+Math.random().toString(36).slice(2,7),name:newTagName.trim(),color:newTagColor};saveCustomTags([...customTags,t]);setNewTagName("");}} disabled={!newTagName.trim()}>+ Create</button>
+          </div>
+          {/* Suggested colour palette */}
+          <div style={{display:"flex",gap:4,marginTop:7,alignItems:"center"}}>
+            <span style={{fontSize:9,color:"#475569",marginRight:3}}>Quick colours:</span>
+            {["#3b82f6","#a855f7","#ef4444","#f59e0b","#10b981","#ec4899","#8b5cf6","#06b6d4","#f97316","#84cc16"].map(c=>(
+              <div key={c} onClick={()=>setNewTagColor(c)} style={{width:18,height:18,background:c,borderRadius:"50%",cursor:"pointer",border:newTagColor===c?"2px solid #fff":"2px solid transparent"}}/>
+            ))}
+          </div>
+        </div>
+        <div style={{maxHeight:300,overflowY:"auto"}}>
+          {customTags.length===0?(
+            <div style={{textAlign:"center",padding:30,color:"#475569",fontSize:12}}>
+              <div style={{fontSize:30,marginBottom:8}}>🏷️</div>
+              No custom tags yet. Create one above.
+            </div>
+          ):customTags.map(t=>{
+            const usage=leads.filter(l=>(l.tags||[]).includes(t.id)).length;
+            return(
+              <div key={t.id} style={{display:"flex",alignItems:"center",gap:9,padding:"8px 10px",background:BG,border:`1px solid ${BDR}`,borderRadius:6,marginBottom:5}}>
+                <input type="color" value={t.color} onChange={e=>saveCustomTags(customTags.map(x=>x.id===t.id?{...x,color:e.target.value}:x))} style={{width:24,height:24,border:`1px solid ${BDR}`,borderRadius:4,cursor:"pointer",background:"transparent",flexShrink:0}}/>
+                <input style={{...S.inp,flex:1,padding:"4px 9px",fontSize:12}} value={t.name} onChange={e=>saveCustomTags(customTags.map(x=>x.id===t.id?{...x,name:e.target.value}:x))}/>
+                <span style={{fontSize:10,color:"#64748b",whiteSpace:"nowrap"}}>{usage} leads</span>
+                <button onClick={()=>{if(confirm(`Delete tag "${t.name}"? It will be removed from ${usage} leads.`)){saveCustomTags(customTags.filter(x=>x.id!==t.id));saveLeads(leads.map(l=>l.tags?{...l,tags:l.tags.filter(tg=>tg!==t.id)}:l));}}} style={{background:"none",border:"none",color:"#f87171",cursor:"pointer",fontSize:13,padding:3}} title="Delete tag">🗑</button>
+              </div>
+            );
+          })}
+        </div>
+        <div style={{display:"flex",gap:8,marginTop:13}}>
+          <button style={{...S.x,flex:1,padding:"8px 0"}} onClick={()=>setShowTagsModal(false)}>Close</button>
+        </div>
+      </Modal>)}
+
+      {/* ── ASSIGN TAGS TO LEAD MODAL ── */}
+      {editTagsLead&&(<Modal onClose={()=>setEditTagsLead(null)}>
+        <h3 style={{fontSize:15,fontWeight:700,marginBottom:4,color:"#0f172a"}}>Tag "{editTagsLead.company}"</h3>
+        <div style={{fontSize:11,color:"#64748b",marginBottom:13}}>Auto-category: <strong style={{color:catOf(editTagsLead).category?CATEGORIES[catOf(editTagsLead).category]?.color:"#64748b"}}>{catOf(editTagsLead).category}</strong></div>
+        {customTags.length===0?(
+          <div style={{textAlign:"center",padding:25,color:"#475569",fontSize:12}}>
+            <div style={{fontSize:26,marginBottom:7}}>🏷️</div>
+            No custom tags yet.
+            <div style={{marginTop:10}}><button style={{...S.w,fontSize:11,padding:"6px 14px"}} onClick={()=>{setEditTagsLead(null);setShowTagsModal(true);}}>+ Create Tags</button></div>
+          </div>
+        ):(<>
+          <div style={{maxHeight:260,overflowY:"auto",marginBottom:11}}>
+            {customTags.map(t=>{
+              const isOn=(editTagsLead.tags||[]).includes(t.id);
+              return(
+                <div key={t.id} onClick={()=>{const cur=editTagsLead.tags||[];const next=isOn?cur.filter(x=>x!==t.id):[...cur,t.id];setEditTagsLead({...editTagsLead,tags:next});}} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",background:isOn?t.color+"20":BG,border:`1px solid ${isOn?t.color:BDR}`,borderRadius:6,marginBottom:4,cursor:"pointer"}}>
+                  <Checkbox checked={isOn} onChange={()=>{}}/>
+                  <div style={{width:11,height:11,borderRadius:"50%",background:t.color,flexShrink:0}}/>
+                  <span style={{fontSize:12,color:"#0f172a",flex:1}}>{t.name}</span>
+                </div>
+              );
+            })}
+          </div>
+          <button style={{...S.x,fontSize:10,padding:"4px 10px",marginBottom:11}} onClick={()=>{setEditTagsLead(null);setShowTagsModal(true);}}>+ Manage tags</button>
+        </>)}
+        <div style={{display:"flex",gap:8}}>
+          <button style={{...S.g,flex:1,padding:"8px 0"}} onClick={()=>{upd(editTagsLead.id,{tags:editTagsLead.tags||[]});setEditTagsLead(null);}}>💾 Save Tags</button>
+          <button style={S.x} onClick={()=>setEditTagsLead(null)}>Cancel</button>
+        </div>
+      </Modal>)}
+
+      {showMapM&&(<Modal onClose={()=>setShowMapM(false)}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:9}}><div style={{fontSize:16,fontWeight:700,color:"#0f172a"}}>🗺️ Connect Google API Key</div><button onClick={()=>setShowMapM(false)} style={{background:"none",border:"none",color:"#64748b",fontSize:20,cursor:"pointer"}}>×</button></div>
+        <div style={{background:"#dcfce7",border:"1px solid #86efac",borderRadius:8,padding:"9px 13px",marginBottom:11,fontSize:11,color:"#4ade80"}}>Enable: <strong>Maps Static API</strong> + <strong>Geocoding API</strong> + <strong>Places API</strong></div>
+        <div style={{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:8,padding:"10px 13px",marginBottom:13,fontSize:11,color:"#7dd3fc",lineHeight:1.8}}>
+          <div style={{fontWeight:600,color:"#38bdf8",marginBottom:4}}>Enable these 3 APIs in Google Cloud Console:</div>
+          <div>1. <strong style={{color:"#0f172a"}}>Maps Static API</strong> — for map view</div>
+          <div>2. <strong style={{color:"#0f172a"}}>Geocoding API</strong> — to pin addresses on map</div>
+          <div>3. <strong style={{color:"#a78bfa"}}>Places API (New)</strong> — for Lead Generator <span style={{fontSize:9,background:"#a78bfa22",borderRadius:3,padding:"1px 4px"}}>NEW VERSION</span></div>
+          <div style={{marginTop:6,padding:"5px 8px",background:"#2d1f07",borderRadius:5,color:"#fbbf24",fontSize:10,lineHeight:1.6}}>
+            ⚠️ <strong>Critical:</strong> Use <strong>"Places API (New)"</strong> not the legacy "Places API". The legacy version doesn't support browser requests and will be blocked by CORS.
+          </div>
+          <div style={{marginTop:5,color:"#475569",fontSize:10}}>Key restrictions → set <strong style={{color:"#64748b"}}>Application restrictions</strong> to "None", <strong style={{color:"#64748b"}}>API restrictions</strong> to "Don't restrict key" (or whitelist the 3 above)</div>
+          <div style={{marginTop:5,color:"#475569",fontSize:10}}>💳 Billing must be enabled (free $200/month credit covers most usage)</div>
+        </div>
+        <label style={S.lbl}>API Key</label>
+        <input style={{...S.inp,marginBottom:6,fontFamily:"monospace",fontSize:12}} placeholder="AIzaSy..." value={mapKeyI} onChange={e=>setMapKeyI(e.target.value)} onKeyDown={e=>e.key==="Enter"&&saveMapKey()}/>
+        {/* Live key format validator */}
+        {mapKeyI&&(
+          <div style={{fontSize:10,marginBottom:8,color:/^AIza[0-9A-Za-z\-_]{30,40}$/.test(mapKeyI.trim().replace(/[\s"']/g,""))?"#4ade80":"#f59e0b"}}>
+            {/^AIza[0-9A-Za-z\-_]{30,40}$/.test(mapKeyI.trim().replace(/[\s"']/g,""))?
+              `✅ Key format valid (${mapKeyI.trim().replace(/[\s"']/g,"").length} chars)`:
+              `⚠️ Format unusual: should start "AIza" and be ~39 chars. Yours: ${mapKeyI.trim().replace(/[\s"']/g,"").length} chars`}
+          </div>
+        )}
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <button style={{...S.g,flex:1,padding:"8px 0",minWidth:120}} onClick={saveMapKey} disabled={!mapKeyI.trim()}>Save & Connect</button>
+          <button style={{...S.x,padding:"8px 14px"}} onClick={()=>{if(mapKeyI.trim())testApiKey(mapKeyI.trim().replace(/[\s"']/g,""));}} disabled={!mapKeyI.trim()}>🧪 Test</button>
+          <button style={S.x} onClick={()=>setShowMapM(false)}>Cancel</button>
+        </div>
+        {/* Direct Google test buttons */}
+        {mapKeyI.trim()&&(
+          <div style={{marginTop:10,padding:"9px 12px",background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:7}}>
+            <div style={{fontSize:10,fontWeight:700,color:"#38bdf8",marginBottom:6,letterSpacing:.3}}>🌐 BYPASS — Test directly with Google</div>
+            <div style={{fontSize:10,color:"#7dd3fc",marginBottom:7,lineHeight:1.5}}>These open Google's API in a new tab. If you see <strong>"results"</strong> the key works. If you see <strong>"error_message"</strong>, the message tells you exactly what to fix.</div>
+            <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+              <a href={`https://maps.googleapis.com/maps/api/geocode/json?address=Dublin&key=${mapKeyI.trim().replace(/[\s"']/g,"")}`} target="_blank" rel="noreferrer" style={{...S.x,fontSize:10,padding:"4px 9px",textDecoration:"none",display:"inline-block"}}>↗ Test Geocoding</a>
+              <a href={`https://maps.googleapis.com/maps/api/staticmap?center=Dublin&zoom=10&size=400x300&key=${mapKeyI.trim().replace(/[\s"']/g,"")}`} target="_blank" rel="noreferrer" style={{...S.x,fontSize:10,padding:"4px 9px",textDecoration:"none",display:"inline-block"}}>↗ Test Static Map</a>
+            </div>
+          </div>
+        )}
+        {/* API Status + Smart Diagnostic */}
+        {(apiStatus.staticMaps||apiStatus.testing)&&(()=>{
+          // Detect the specific failure pattern
+          const allFail=[apiStatus.geocoding,apiStatus.placesNew,apiStatus.staticMaps].every(s=>s&&!s.startsWith("✅"));
+          const allInvalid=[apiStatus.geocoding,apiStatus.placesNew].every(s=>/invalid|denied|api_key/i.test(s||""));
+          const refBlocked=[apiStatus.geocoding,apiStatus.placesNew].some(s=>/referer|referrer|blocked/i.test(s||""));
+          const billing=[apiStatus.geocoding,apiStatus.placesNew].some(s=>/billing/i.test(s||""));
+          const notEnabled=[apiStatus.geocoding,apiStatus.placesNew].some(s=>/not enabled|disabled|permission_denied/i.test(s||""));
+          
+          let diagnosis=null;
+          if(apiStatus.testing){
+            // skip
+          } else if(allInvalid&&allFail){
+            diagnosis={
+              type:"INVALID_KEY",
+              title:"🔑 Key is being rejected by all Google APIs",
+              cause:"The key itself is invalid. Most common reasons (in order of likelihood):",
+              fixes:[
+                {n:1,t:"HTTP Referrer Restrictions",d:"Open your key in Cloud Console. Application restrictions MUST be 'None'. If it shows HTTP referrers, change to None and SAVE.",link:"https://console.cloud.google.com/apis/credentials"},
+                {n:2,t:"Wrong project",d:"Your key is in Project A, APIs are enabled in Project B. Check the project dropdown at top of Cloud Console matches.",link:"https://console.cloud.google.com/apis/credentials"},
+                {n:3,t:"Create a fresh unrestricted key",d:"Easiest fix: + CREATE CREDENTIALS → API key → DO NOT click Restrict. Use that new key here.",link:"https://console.cloud.google.com/apis/credentials"},
+              ]
+            };
+          } else if(refBlocked){
+            diagnosis={
+              type:"REFERRER",
+              title:"🚫 HTTP Referrer restrictions are blocking the key",
+              cause:"Your key has Application restrictions set to 'HTTP referrers'. Browsers running from claude.ai or file:// aren't whitelisted.",
+              fixes:[{n:1,t:"Set restrictions to None",d:"Cloud Console → your key → Application restrictions → None → SAVE. Wait 2 min and retest.",link:"https://console.cloud.google.com/apis/credentials"}]
+            };
+          } else if(billing){
+            diagnosis={
+              type:"BILLING",
+              title:"💳 Billing not enabled",
+              cause:"Google requires a payment method on file (you won't be charged — free $200/mo credit).",
+              fixes:[{n:1,t:"Enable billing",d:"Link a billing account to your project.",link:"https://console.cloud.google.com/billing"}]
+            };
+          } else if(notEnabled){
+            diagnosis={
+              type:"NOT_ENABLED",
+              title:"📦 Required APIs not enabled",
+              cause:"One or more of the 3 APIs is not enabled in this project.",
+              fixes:[
+                {n:1,t:"Enable Places API (New)",d:'Library → search "Places API (New)" with parentheses → Enable.',link:"https://console.cloud.google.com/apis/library/places.googleapis.com"},
+                {n:2,t:"Enable Geocoding API",d:"Library → search 'Geocoding API' → Enable.",link:"https://console.cloud.google.com/apis/library/geocoding-backend.googleapis.com"},
+                {n:3,t:"Enable Maps Static API",d:"Library → search 'Maps Static API' → Enable.",link:"https://console.cloud.google.com/apis/library/static-maps-backend.googleapis.com"},
+              ]
+            };
+          }
+          
+          return(
+          <div style={{marginTop:12,background:BG,border:`1px solid ${BDR}`,borderRadius:8,padding:"10px 13px",fontSize:11}}>
+            <div style={{fontWeight:600,color:"#64748b",marginBottom:7,letterSpacing:.5}}>API STATUS</div>
+            {apiStatus.testing?<div style={{color:"#f59e0b"}}>⏳ Testing APIs (this takes ~5s)...</div>:(
+              <>
+                <div style={{display:"flex",flexDirection:"column",gap:5,marginBottom:diagnosis?10:0}}>
+                  <div style={{display:"flex",justifyContent:"space-between",gap:8}}><span style={{color:"#64748b",whiteSpace:"nowrap"}}>🗺️ Maps Static</span><span style={{color:apiStatus.staticMaps?.startsWith("✅")?"#4ade80":"#f87171",textAlign:"right",fontSize:10}}>{apiStatus.staticMaps}</span></div>
+                  <div style={{display:"flex",justifyContent:"space-between",gap:8}}><span style={{color:"#64748b",whiteSpace:"nowrap"}}>📍 Geocoding</span><span style={{color:apiStatus.geocoding?.startsWith("✅")?"#4ade80":"#f87171",textAlign:"right",fontSize:10}}>{apiStatus.geocoding}</span></div>
+                  <div style={{display:"flex",justifyContent:"space-between",gap:8}}><span style={{color:"#64748b",whiteSpace:"nowrap"}}>🔍 Places API (New)</span><span style={{color:apiStatus.placesNew?.startsWith("✅")?"#4ade80":"#f87171",textAlign:"right",fontSize:10}}>{apiStatus.placesNew}</span></div>
+                  <div style={{display:"flex",justifyContent:"space-between",gap:8}}><span style={{color:"#64748b",whiteSpace:"nowrap",fontSize:10}}>🔍 Places (legacy fallback)</span><span style={{color:apiStatus.placesLegacy?.startsWith("✅")?"#4ade80":apiStatus.placesLegacy?.startsWith("⚠️")?"#f59e0b":"#f87171",textAlign:"right",fontSize:10}}>{apiStatus.placesLegacy}</span></div>
+                </div>
+                {diagnosis&&(
+                  <div style={{marginTop:10,padding:"11px 13px",background:"#2d1407",border:"1px solid #7c2d12",borderRadius:7}}>
+                    <div style={{fontSize:12,fontWeight:700,color:"#fb923c",marginBottom:5}}>{diagnosis.title}</div>
+                    <div style={{fontSize:10,color:"#fdba74",marginBottom:9,lineHeight:1.6}}>{diagnosis.cause}</div>
+                    {diagnosis.fixes.map(f=>(
+                      <div key={f.n} style={{marginBottom:7,padding:"7px 9px",background:"rgba(0,0,0,.3)",border:"1px solid #7c2d12",borderRadius:5}}>
+                        <div style={{fontSize:11,fontWeight:600,color:"#fed7aa",marginBottom:3}}>{f.n}. {f.t}</div>
+                        <div style={{fontSize:10,color:"#fdba74",lineHeight:1.5,marginBottom:5}}>{f.d}</div>
+                        <a href={f.link} target="_blank" rel="noreferrer" style={{display:"inline-block",padding:"3px 10px",background:"#fb923c",color:"#0a0e1a",borderRadius:4,textDecoration:"none",fontSize:10,fontWeight:700}}>Open Google Cloud Console ↗</a>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+          );
+        })()}
+        {mapKey&&<div style={{marginTop:10,padding:10,background:BG,borderRadius:7,border:`1px solid ${BDR}`,fontSize:11,display:"flex",alignItems:"center",justifyContent:"space-between"}}><div style={{color:"#4ade80"}}>✅ Key ending …{mapKey.slice(-6)}</div><div style={{display:"flex",gap:8}}><span onClick={()=>testApiKey(mapKey)} style={{color:"#38bdf8",cursor:"pointer"}}>🧪 Test</span><span onClick={()=>{std("ec-mapkey");setMapKey("");setShowMapM(false);setApiStatus({});}} style={{color:"#f87171",cursor:"pointer"}}>🗑 Remove</span></div></div>}
+      </Modal>)}
+
+      {/* EMAIL PROFILE MODAL */}
+      {showEmailM&&(<Modal onClose={()=>setShowEmailM(false)} w={490}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:9}}><div style={{fontSize:16,fontWeight:700,color:"#0f172a"}}>✉️ Connect Eir Email</div><button onClick={()=>setShowEmailM(false)} style={{background:"none",border:"none",color:"#64748b",fontSize:20,cursor:"pointer"}}>×</button></div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+          {[["name","Full Name","Ciarán O'Brien"],["email","Eir Email","c.obrien@eir.ie"],["phone","Phone","087 123 4567"],["title","Job Title","Business Development Manager"],["company","Company","eir Business"]].map(([k,lb,ph])=>(<div key={k}><label style={S.lbl}>{lb}</label><input style={S.inp} placeholder={ph} value={eProfI[k]||""} onChange={e=>setEProfI(p=>({...p,[k]:e.target.value}))}/></div>))}
+        </div>
+        <div style={{display:"flex",gap:8,marginTop:15}}><button style={{...S.p,flex:1,padding:"9px 0",fontSize:13}} onClick={saveEProf}>Save Profile</button><button style={S.x} onClick={()=>setShowEmailM(false)}>Cancel</button></div>
+        {ec&&<div style={{marginTop:12,padding:10,background:BG,borderRadius:7,border:`1px solid ${BDR}`,fontSize:11}}><div style={{color:"#a78bfa",marginBottom:4}}>✅ {eProf.email}</div><span onClick={()=>{std("ec-ep");setEProf(EP);setShowEmailM(false);}} style={{color:"#f87171",cursor:"pointer"}}>🗑 Remove</span></div>}
+      </Modal>)}
+
+    </div>
+  );
+}
